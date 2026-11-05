@@ -78,8 +78,11 @@ Linux also three crates without their default features, the browser
 engine for wasm32, rustdoc and the Windows cross-check), `test`, `deny`,
 `generated` (the changelog, icon, credits and decisions-index checks),
 `render` (Linux: the app on Xvfb, the scene library in both dialects and
-the corpus gate), `build` (Windows: the optimised binaries) and `package`
-(Windows: the release zip, unpacked and checked). `conventions` runs the
+the corpus gate), `build` (Windows: the optimised binaries), `package`
+(Windows: the release zip, unpacked and checked) and `site` (the website:
+`npm ci`, lint, typecheck, unit tests, the build with the wasm engine and
+a Playwright smoke test of `/play`; it needs Node, the wasm target and
+`wasm-bindgen` at Cargo.lock's version, D552). `conventions` runs the
 conventions tests alone; a docs-only pull request runs only that (D531).
 
 A step that does not apply to your host says `n/a`, as CI's job for that

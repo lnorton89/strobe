@@ -11,7 +11,10 @@
  * fails, so a build cannot ship a /play page with no engine behind it.
  *
  * Runs after sync-assets (which empties public/generated/) in predev and
- * prebuild, and alone as `npm run engine`.
+ * prebuild, and alone as `npm run engine`. The cargo build is `--locked`,
+ * as every cargo command in CI is (D521): the engine is built from the
+ * dependencies Cargo.lock names, and a lock that no longer matches the
+ * manifests fails rather than being rewritten (D552).
  */
 
 import { execFileSync } from "node:child_process";
@@ -63,6 +66,7 @@ if (version && !installed.endsWith(version)) {
 
 run("cargo", [
   "build",
+  "--locked",
   "-p",
   "strobe-web",
   "--target",

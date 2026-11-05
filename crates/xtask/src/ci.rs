@@ -25,16 +25,17 @@
 //! |---|---|---|
 //! | `fmt` | `cargo fmt --all -- --check` | `rustfmt` |
 //! | `lint` | Linux: actionlint over the workflows and shellcheck over the `.sh` scripts; Windows: PSScriptAnalyzer over the `.ps1` scripts (D541) | `rustfmt`, `windows` |
-//! | `check` | clippy `-D warnings` over the workspace; on Linux also `strobe-io`, `strobe-audio` and `strobe-shadertoy` each without its default feature, rustdoc with `-D warnings`, and the Windows cross-check (D541); on macOS the portable crates only | each platform job |
+//! | `check` | clippy `-D warnings` over the workspace; on Linux also `strobe-io`, `strobe-audio` and `strobe-shadertoy` each without its default feature, `strobe-web` and `strobe-gfx` for `wasm32-unknown-unknown` (D544, D552), rustdoc with `-D warnings`, and the Windows cross-check (D541); on macOS the portable crates only | each platform job |
 //! | `test` | `cargo test --workspace --all-features`; on macOS the portable crates | each platform job |
 //! | `deny` | `cargo deny check` | `cargo-deny` |
 //! | `generated` | the changelog, icon and credits checks | `changelog` |
 //! | `render` | Linux: the app on Xvfb, auto-controls on a window context, the scene library in both GLSL dialects, the corpus gate (D534) | `linux` |
 //! | `build` | Windows: the `release-fast` binaries, and with `--shipping` the fat-LTO `release` ones | `windows` |
 //! | `package` | Windows: the release zip from that build, unpacked outside the checkout and checked (D537) | `windows` |
+//! | `site` | the website (D552): `npm ci`, lint, typecheck and unit tests, the static build with the wasm engine (`wasm-bindgen` at Cargo.lock's version), and the Playwright smoke test of `/play` in Chromium | `site` |
 //! | `conventions` | `cargo test -p strobe-conventions` | `docs` (a docs-only pull request) |
 //!
-//! `all` (the default) is `fmt lint check test deny generated render build package`:
+//! `all` (the default) is `fmt lint check test deny generated render build package site`:
 //! every lane this host's CI job runs, plus the cheap shared ones.
 //! `doctor` runs nothing and lists, for the lanes named (or all of them),
 //! what this machine would run, what does not apply here, and what is
@@ -167,11 +168,14 @@ enum Lane {
     /// The workflows and scripts: actionlint and shellcheck on Linux,
     /// PSScriptAnalyzer on Windows (D541).
     Lint,
+    /// The website: its lint, types and unit tests, the static build with
+    /// the wasm engine, and the browser smoke test of `/play` (D552).
+    Site,
 }
 
 impl Lane {
     /// The lanes `all` stands for, in the order they run.
-    const ALL: [Self; 9] = [
+    const ALL: [Self; 10] = [
         Self::Fmt,
         Self::Lint,
         Self::Check,
@@ -181,6 +185,7 @@ impl Lane {
         Self::Render,
         Self::Build,
         Self::Package,
+        Self::Site,
     ];
 
     /// The name on the command line.
@@ -198,6 +203,7 @@ impl Lane {
             Self::Package => "package",
             Self::Conventions => "conventions",
             Self::Lint => "lint",
+            Self::Site => "site",
         }
     }
 }
@@ -315,8 +321,14 @@ struct Machine {
     cargo: String,
     /// `cargo deny --version` succeeds.
     deny: bool,
-    /// The browser build's target is installed (Linux only, as CI checks it).
+    /// The browser build's target is installed.
     wasm_target: bool,
+    /// The program that runs npm (`npm.cmd` on Windows), when it runs.
+    npm: Option<String>,
+    /// `wasm-bindgen --version`'s version, when it is installed.
+    wasm_bindgen: Option<String>,
+    /// The wasm-bindgen version Cargo.lock pins, which the CLI must match.
+    pinned_bindgen: Option<String>,
     /// The Windows target's standard library is installed.
     windows_target: bool,
     /// `cargo nextest --version` succeeds.
@@ -350,7 +362,20 @@ impl Machine {
             host,
             deny: tool_works(&cargo, &["deny", "--version"]),
             windows_target: host != Host::Windows && target_installed(WINDOWS_TARGET),
-            wasm_target: host == Host::Linux && target_installed(WASM_TARGET),
+            wasm_target: target_installed(WASM_TARGET),
+            npm: {
+                let npm = if host == Host::Windows {
+                    "npm.cmd"
+                } else {
+                    "npm"
+                };
+                tool_works(npm, &["--version"]).then(|| npm.to_owned())
+            },
+            wasm_bindgen: tool_output("wasm-bindgen", &["--version"])
+                .and_then(|out| out.split_whitespace().last().map(str::to_owned)),
+            pinned_bindgen: std::fs::read_to_string(crate::workspace_root()?.join("Cargo.lock"))
+                .ok()
+                .and_then(|lock| locked_version(&lock, "wasm-bindgen")),
             nextest: tool_works(&cargo, &["nextest", "--version"]),
             xvfb: host == Host::Linux && tool_works("xvfb-run", &["--help"]),
             actionlint: host == Host::Linux && tool_works("actionlint", &["-version"]),
@@ -476,6 +501,7 @@ fn plan(lanes: &[Lane], args: &Args, machine: &Machine, tree: Option<String>) ->
             Lane::Build => build_lane(&mut steps, args, machine),
             Lane::Package => package_lane(&mut steps, machine),
             Lane::Lint => lint_lane(&mut steps, machine),
+            Lane::Site => site_lane(&mut steps, machine),
             Lane::Conventions => steps.push(Step::new(
                 *lane,
                 "conventions",
@@ -619,11 +645,17 @@ fn check_lane(steps: &mut Vec<Step>, machine: &Machine) {
     // browser's (D524): strobe-web for wasm32, which takes the renderer and
     // the DSP alone. Clippy over that, so a native-only call in the shared
     // renderer fails here rather than in the website's deploy (D544).
+    // strobe-gfx is named as well as reached (D552): clippy lints a
+    // workspace member it compiles on the way, but naming it says so, and
+    // `--no-default-features` is what keeps `native` off for it.
     let mut wasm = vec![
         "clippy",
         "--locked",
         "-p",
         "strobe-web",
+        "-p",
+        "strobe-gfx",
+        "--no-default-features",
         "--target",
         WASM_TARGET,
     ];
@@ -1456,6 +1488,104 @@ fn lint_lane(steps: &mut Vec<Step>, machine: &Machine) {
     }
 }
 
+/// The website (D552): what CI's `site` job runs, from the repository root.
+///
+/// `npm --prefix site` runs each of the site's own scripts in `site/`, so
+/// the lane is the commands a person types there. The build's `prebuild`
+/// syncs the assets and builds the engine (`scripts/build-engine.mjs`:
+/// strobe-web for wasm32 in `release-web`, then `wasm-bindgen`), so a change
+/// that breaks the browser build fails here; the smoke test then plays a
+/// scene and an error in that engine in Chromium. Every host can run it:
+/// nothing in it is Linux's or Windows's.
+fn site_lane(steps: &mut Vec<Step>, machine: &Machine) {
+    const LANE: Lane = Lane::Site;
+    let Some(npm) = &machine.npm else {
+        steps.push(Step::new(
+            LANE,
+            "site",
+            Action::Missing {
+                why: "npm is not installed".to_owned(),
+                fix: "install Node.js at the version in site/.nvmrc".to_owned(),
+            },
+        ));
+        return;
+    };
+    let npm_run = |args: &[&str]| Action::Run {
+        program: npm.clone(),
+        args: ["--prefix", "site"]
+            .iter()
+            .chain(args)
+            .map(|arg| (*arg).to_owned())
+            .collect(),
+        env: Vec::new(),
+    };
+    // `npm ci` installs exactly package-lock.json, and fails when it no
+    // longer matches package.json, as `--locked` does for cargo.
+    steps.push(Step::new(LANE, "npm ci", npm_run(&["ci"])).timeout(10));
+    steps.push(Step::new(LANE, "lint", npm_run(&["run", "lint"])).timeout(10));
+    steps.push(Step::new(LANE, "typecheck", npm_run(&["run", "typecheck"])).timeout(10));
+    steps.push(Step::new(LANE, "unit", npm_run(&["test"])).timeout(10));
+    let build = match engine_prerequisite(machine) {
+        Some(missing) => missing,
+        None => npm_run(&["run", "build"]),
+    };
+    // A cold wasm build of the renderer in `release-web` takes minutes.
+    steps.push(Step::new(LANE, "build", build).timeout(30));
+    // The Chromium build this Playwright pins: a download the first time,
+    // nothing after. CI restores it from a cache keyed by that version.
+    steps.push(Step::new(LANE, "chromium", npm_run(&["run", "browser"])).timeout(10));
+    steps.push(Step::new(LANE, "play e2e", npm_run(&["run", "test:play"])).timeout(10));
+}
+
+/// Why the engine cannot be built here, or none: the wasm target and
+/// `wasm-bindgen` at exactly the version Cargo.lock pins, which
+/// `build-engine.mjs` checks too.
+fn engine_prerequisite(machine: &Machine) -> Option<Action> {
+    if !machine.wasm_target {
+        return Some(Action::Missing {
+            why: format!("the {WASM_TARGET} standard library is not installed"),
+            fix: format!("rustup target add {WASM_TARGET}"),
+        });
+    }
+    let Some(pinned) = &machine.pinned_bindgen else {
+        return Some(Action::Missing {
+            why: "Cargo.lock names no wasm-bindgen".to_owned(),
+            fix: "cargo update -p wasm-bindgen".to_owned(),
+        });
+    };
+    let fix = format!("cargo install wasm-bindgen-cli --version {pinned} --locked");
+    match &machine.wasm_bindgen {
+        Some(installed) if installed == pinned => None,
+        Some(installed) => Some(Action::Missing {
+            why: format!("wasm-bindgen {installed} is installed, but Cargo.lock pins {pinned}"),
+            fix,
+        }),
+        None => Some(Action::Missing {
+            why: "wasm-bindgen is not installed".to_owned(),
+            fix,
+        }),
+    }
+}
+
+/// The version Cargo.lock records for the package `name` (its first entry).
+fn locked_version(lock: &str, name: &str) -> Option<String> {
+    let wanted = format!("name = \"{name}\"");
+    let mut lines = lock.lines();
+    lines.by_ref().find(|line| line.trim() == wanted)?;
+    let version = lines.next()?.trim().strip_prefix("version = ")?;
+    Some(version.trim_matches('"').to_owned())
+}
+
+/// `program args`'s standard output when it runs and succeeds.
+fn tool_output(program: &str, args: &[&str]) -> Option<String> {
+    Command::new(program)
+        .args(args)
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
+}
+
 /// Whether `program args` runs and succeeds, with its output discarded.
 fn tool_works(program: &str, args: &[&str]) -> bool {
     Command::new(program)
@@ -1486,6 +1616,9 @@ mod tests {
             deny: true,
             windows_target: true,
             wasm_target: true,
+            npm: Some("npm".to_owned()),
+            wasm_bindgen: Some("0.2.129".to_owned()),
+            pinned_bindgen: Some("0.2.129".to_owned()),
             nextest: true,
             xvfb: true,
             actionlint: true,
@@ -1531,7 +1664,8 @@ mod tests {
                 Lane::Generated,
                 Lane::Render,
                 Lane::Build,
-                Lane::Package
+                Lane::Package,
+                Lane::Site
             ],
             "a lane named twice runs once, where it was first named"
         );
@@ -1549,9 +1683,14 @@ mod tests {
             every.shipping = true;
             let steps = plan(&expand(&every.lanes), &every, &machine(host), None);
             for step in &steps {
-                let Action::Run { args, .. } = &step.action else {
+                let Action::Run { program, args, .. } = &step.action else {
                     continue;
                 };
+                // npm's scripts are not cargo's subcommands; its lockfile
+                // is held by `npm ci`.
+                if program.starts_with("npm") {
+                    continue;
+                }
                 let resolving = args
                     .iter()
                     .any(|a| ["build", "clippy", "test", "run"].contains(&a.as_str()));
@@ -1727,6 +1866,92 @@ mod tests {
                 Some(Action::Missing { .. })
             ),
             "asked for and absent is missing"
+        );
+    }
+
+    #[test]
+    fn the_wasm_clippy_names_the_browser_crates_without_native() {
+        let steps = plan(&[Lane::Check], &args(&[]), &machine(Host::Linux), None);
+        let wasm = steps.iter().find(|s| s.name == "clippy wasm").map(command);
+        assert!(
+            wasm.as_deref()
+                .is_some_and(|c| c.contains("-p strobe-web -p strobe-gfx")
+                    && c.contains("--no-default-features")
+                    && c.contains("--target wasm32-unknown-unknown")),
+            "strobe-web and strobe-gfx for wasm32, without native: {wasm:?}"
+        );
+    }
+
+    #[test]
+    fn the_site_lane_builds_the_engine_and_plays_it_on_every_host() {
+        for host in [Host::Linux, Host::Windows, Host::MacOs] {
+            let steps = plan(&[Lane::Site], &args(&[]), &machine(host), None);
+            assert_eq!(
+                names(&steps),
+                vec![
+                    "site npm ci",
+                    "site lint",
+                    "site typecheck",
+                    "site unit",
+                    "site build",
+                    "site chromium",
+                    "site play e2e"
+                ],
+                "{host:?}"
+            );
+            assert!(
+                steps.iter().all(|s| matches!(s.action, Action::Run { .. })),
+                "{host:?} runs every step: {:?}",
+                steps.iter().map(command).collect::<Vec<_>>()
+            );
+            assert!(
+                steps
+                    .iter()
+                    .all(|s| command(s).starts_with("npm --prefix site ")),
+                "{host:?} runs the site's own scripts from the root"
+            );
+        }
+    }
+
+    #[test]
+    fn the_engine_needs_the_wasm_target_and_the_locked_wasm_bindgen() {
+        let build = |machine: &Machine| {
+            plan(&[Lane::Site], &args(&[]), machine, None)
+                .into_iter()
+                .find(|s| s.name == "build")
+                .map(|s| s.action)
+        };
+        let mut stale = machine(Host::Linux);
+        stale.wasm_bindgen = Some("0.2.100".to_owned());
+        assert!(
+            matches!(build(&stale), Some(Action::Missing { why, .. }) if why.contains("0.2.129")),
+            "a wasm-bindgen that does not match Cargo.lock is missing"
+        );
+        let mut bare = machine(Host::Linux);
+        bare.wasm_target = false;
+        assert!(
+            matches!(build(&bare), Some(Action::Missing { .. })),
+            "no wasm target, no engine"
+        );
+        let mut no_node = machine(Host::Linux);
+        no_node.npm = None;
+        let steps = plan(&[Lane::Site], &args(&[]), &no_node, None);
+        assert!(
+            steps.len() == 1
+                && matches!(
+                    steps.first().map(|s| &s.action),
+                    Some(Action::Missing { .. })
+                ),
+            "without npm the lane is one missing step"
+        );
+        assert_eq!(
+            locked_version(
+                "[[package]]\nname = \"wasm-bindgen\"\nversion = \"0.2.129\"\n",
+                "wasm-bindgen"
+            )
+            .as_deref(),
+            Some("0.2.129"),
+            "the version is read from Cargo.lock's entry"
         );
     }
 

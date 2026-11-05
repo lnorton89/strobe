@@ -420,9 +420,9 @@
 - **Acceptance:** a table of browser × feature results; a forced context loss (`WEBGL_lose_context`) recovers without a reload.
 
 ### W-03 Engine and site in CI, and deploys
-- **Status:** Open. `npm run engine` builds the wasm before `dev` and `build`, and deploys are run by hand from a machine with Rust, the wasm target and `wasm-bindgen-cli`: to Cloudflare with `npm run deploy:cf` since 2026-10-30 (D523, D524, D525). CI runs `strobe-web`'s native tests on Linux, and since D544 its `check` lane clippies `strobe-web` for `wasm32-unknown-unknown`; it still runs neither `wasm-bindgen` nor the site's build and tests.
-- **Work:** add a CI job that installs the wasm target and the pinned `wasm-bindgen-cli`, clippies `strobe-web` and `strobe-gfx` for `wasm32-unknown-unknown`, builds the engine, and runs the site's lint, typecheck, unit tests and a Playwright smoke test of `/play` (a scene compiles; an error is marked); add the wasm clippy to `cargo xtask ci`.
-- **Acceptance:** a pull request that breaks the browser build or the sandbox fails CI.
+- **Status:** CI half done (D552); deploys open. CI's `site` job runs the `site` lane of `cargo xtask ci` on every pull request that touches `site/`, `scenes/`, strobe-web, strobe-gfx, strobe-scene, strobe-audio, Cargo's manifests or the workflow: `npm ci`, lint, typecheck, unit tests, the static build (which compiles strobe-web to wasm `--locked` and runs `wasm-bindgen` 0.2.129, installed at Cargo.lock's version, which a conventions test holds), and `tests/e2e/play.spec.ts` in Chromium's headless shell on SwiftShader: a library scene compiles and draws, and a shader error is marked on its line while the picture stays. The job is part of `ci-ok`. The Linux `check` lane clippies `strobe-web` and `strobe-gfx` for `wasm32-unknown-unknown` without `native` (D544, D552). Left: deploys are still run by hand, `npm run deploy:cf` from a machine with Rust, the wasm target and `wasm-bindgen-cli` (D525), and the rest of the site's Playwright suite (axe, overflow, navigation) is not in CI.
+- **Work:** deploy from CI (a Cloudflare token as a secret, on master or on a release), and decide whether the whole Playwright suite runs there.
+- **Acceptance:** a pull request that breaks the browser build or the sandbox fails CI (met, D552); a deploy needs no developer machine.
 
 ## Epic G — Graphics backend research
 
