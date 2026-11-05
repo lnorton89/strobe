@@ -74,9 +74,8 @@ export const CARDS: Record<ExportedRoute, CardCopy> = {
   "/roadmap/": {
     eyebrow: "Roadmap",
     title: "What is built, and where it was proved.",
-    description:
-      "The roadmap and status of Strobe: what is implemented and integrated, what is in flight, the priorities next, and the known gaps.",
-    alt: "Strobe social card — the roadmap.",
+    description: "What is implemented, on which machine it was checked, and what comes next.",
+    alt: "Strobe's roadmap, beside a frame of its Aurora Gradient scene.",
     scene: "01-aurora-gradient",
   },
 };
