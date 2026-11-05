@@ -32,9 +32,8 @@ export const CARDS: Record<ExportedRoute, CardCopy> = {
   "/download/": {
     eyebrow: "Download",
     title: "Unzip it and run it.",
-    description:
-      "A Windows release with no installer and an ANGLE fallback beside it; Linux from source with a package list and a Nix flake.",
-    alt: "Strobe social card — download and build.",
+    description: "A Windows release with no installer. Linux from source, with a Nix flake.",
+    alt: "Strobe's download page, beside a frame of its Chromatic Rise scene.",
     scene: "13-chromatic-rise",
   },
   "/guide/": {
