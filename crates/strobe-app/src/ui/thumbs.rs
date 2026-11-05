@@ -122,6 +122,20 @@ impl Thumbs {
         self.slots.remove(path);
     }
 
+    /// Drops every uploaded picture, for a GL context that was rebuilt.
+    ///
+    /// The rebuild makes a new egui context and painter, and textures
+    /// loaded through the old one are not in the new painter. Kept, they
+    /// drew nothing and made egui warn on every frame they were drawn
+    /// (D550). Dropped, each is asked for again the next time its row is
+    /// drawn, and decoded again off the UI thread. A picture the worker
+    /// is still decoding is uploaded into the new context when it arrives,
+    /// and a missing one stays missing.
+    pub fn forget_textures(&mut self) {
+        self.slots
+            .retain(|_, slot| !matches!(slot, Slot::Ready(..)));
+    }
+
     /// How many pictures are kept as textures.
     pub fn len(&self) -> usize {
         self.slots
@@ -301,6 +315,38 @@ mod tests {
                 .slots
                 .contains_key(Path::new(&format!("p{}", MAX_TEXTURES + 4))),
             "the newest stayed"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_rebuilt_context_drops_uploaded_pictures_and_keeps_the_rest() -> Result<()> {
+        // The textures belonged to the old egui context (D550): a rebuilt
+        // control window must ask for them again, not draw stale ids.
+        let ctx = Context::default();
+        let mut thumbs = Thumbs::default();
+        let image = ColorImage::new([1, 1], vec![egui::Color32::BLACK]);
+        let texture = ctx.load_texture("old", image, TextureOptions::LINEAR);
+        thumbs
+            .slots
+            .insert(PathBuf::from("ready"), Slot::Ready(texture, 0));
+        thumbs.slots.insert(PathBuf::from("pending"), Slot::Pending);
+        thumbs.slots.insert(PathBuf::from("missing"), Slot::Missing);
+
+        thumbs.forget_textures();
+
+        assert!(thumbs.is_empty(), "no texture of the old context is kept");
+        assert!(
+            !thumbs.slots.contains_key(Path::new("ready")),
+            "an uploaded picture is asked for again"
+        );
+        assert!(
+            matches!(thumbs.slots.get(Path::new("pending")), Some(Slot::Pending)),
+            "one being decoded still arrives"
+        );
+        assert!(
+            matches!(thumbs.slots.get(Path::new("missing")), Some(Slot::Missing)),
+            "a broken file is not retried"
         );
         Ok(())
     }

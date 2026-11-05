@@ -1235,7 +1235,39 @@ The A/B, 4 minutes controlled from LIGHTNING and 4 minutes returned to local, on
 `17-blacklight-carpet`, still to be run: phase times from the owner, perf lines, and the
 Strobe CPU sampled every 5 s.
 
+## Pre-release pass for v0.3.0 on 6612575 (2026-11-04)
+
+Run by the mini PC's Claude session, with the owner's approval to stop the
+show. Built `release-fast` from 6612575 (fast-forwarded from 4c7fca4, clean
+tree). The session runs in session 0, so GUI runs went through an
+interactive scheduled task as JAJA, and a person was needed for the screen.
+
+| Check | Result |
+|---|---|
+| `--diagnose` | `angle` 38.2.0 (Electron), all four files match the pin; `angle.loaded` OpenGL ES 3.0.0 (ANGLE 2.1.25847 git hash: a8c8a6febe63) on AMD Radeon(TM) Vega 3 Graphics, Direct3D11, driver 31.0.21925.1001. Native GL: 3.3.0 Core Profile Context 26.5.2.260413 |
+| Opens on the Library (D543) | Pass. The last scene reopened live behind it |
+| Launch prerender (D542) | **Fail.** 116 of 117 scenes (88 of them Synesthesia's) were ready in 60.6 s, and that minute logged 7.4 fps, 34.0% missed refreshes, a 4,315 ms worst gap and three audio buffer glitches. Every minute after was 60.0 fps. With `--no-synesthesia` (29 scenes, already cached) it took 3.2 s and still had a 442 ms worst gap. Fixed in code by D550, not yet re-run here |
+| Thumbnails (D540) | Pass. Those that exist fill their cards, nothing stretched or black. Four scenes with no picture keep the letter placeholder, as they should until the Library's camera button renders one (D547) |
+| A playlist through its transitions | Pass. Six cues (nested `user-scenes\jaja` and `shadertoy-imports` scenes included) played 4 crossfades and 2 cuts and looped. The 50-cue JaJa playlist compiled 25 scenes with 0 failed and went fullscreen at 1920x1080 on monitor 1 |
+| `STROBE_FAULT=lose-context@60` | **Partial.** The output recovered on native in 310 ms and the scene reloaded, then 60.0 fps. But every Library thumbnail went blank, and egui logged "Failed to find texture" for 25 textures every frame: 103,675 lines in 142 s. Fixed in code by D550, not yet re-run here |
+| Fullscreen and back | Not tested: needs a person. Fullscreen at launch works |
+| Unplugging the C270 | Not tested: needs a person |
+
+Also seen: `--scene 03-kaleido-tunnel` logged "the last session's scene ...
+is not in the library" although that scene loaded. Fixed by D550. This
+driver refuses `WGL_ARB_create_context_robustness`, so a driver reset is not
+reported.
+
+Logs, `%LOCALAPPDATA%\strobe\logs`: `strobe-20261104-231158-12928.log`
+(Library and prerender), `-233156-11792.log` (playlist), `-233430-7804.log`
+(context loss).
+
 ## Still to do here
+
+- v0.3.0: re-run the launch prerender and `lose-context@60` on a build with
+  D550. Pass means no minute under 50 fps during the prerender, and the
+  thumbnails back with no egui texture warnings after the rebuild. Then run
+  `cargo xtask rc` on the v0.3.0 draft's own archives (D548).
 
 - M31: run the after-fix A/B on 1ce46e7, and check that LIGHTNING's view of the covered host
   keeps updating (not black or stale).
