@@ -693,6 +693,7 @@ Everything Strobe writes lives in `%LOCALAPPDATA%\strobe`:
 | `projectors.json` | Settings > Projectors: the projectors and the projector page. |
 | `resume.toml` | Where a playlist was, so it resumes after a close. |
 | `diagnose.txt` | The last `--diagnose` report. |
+| `diagnose.previous.txt` | The one before it. |
 | `backups\` | The Editor's copies of files before it saved over them. |
 
 - **The Diagnostics pane** shows the GPU, the backend, frame timing, the
