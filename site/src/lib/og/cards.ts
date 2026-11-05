@@ -23,11 +23,10 @@ export type CardCopy = {
 
 export const CARDS: Record<ExportedRoute, CardCopy> = {
   "/": {
-    eyebrow: "Open-source VJ engine",
-    title: "Audio-reactive shaders for screens, projectors and LED walls.",
-    description:
-      "Plays Synesthesia scenes as they are, imports Shadertoy shaders and runs long playlists — built to stay up on old laptops.",
-    alt: "Strobe — audio-reactive shaders for screens, projectors and LED walls.",
+    eyebrow: "VJ engine",
+    title: "A VJ engine for audio-reactive GLSL scenes.",
+    description: "Plays Synesthesia scenes unchanged, imports Shadertoy shaders, runs playlists.",
+    alt: "Strobe, a VJ engine for audio-reactive GLSL scenes, beside a frame of its Electric Bloom scene.",
     scene: "14-electric-bloom",
   },
   "/download/": {
