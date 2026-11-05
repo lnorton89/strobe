@@ -5,9 +5,11 @@
 //               uniform only exists because its script ran, a bad
 //               scene.json, a script that throws, and a blank frame. In
 //               process, through worker processes, and through the CLI,
-//               on a headless context in both dialects.
+//               on a headless context in both dialects. Also the Shadertoy
+//               converter's fixtures, converted and run the same way.
 //
-// Dependencies: anyhow; strobe-app (corpus); strobe-gfx (headless context)
+// Dependencies: anyhow; strobe-app (corpus); strobe-gfx (headless context);
+//               strobe-shadertoy (the fixtures' conversion)
 // ============================================================================
 
 //! The harness end to end.
@@ -97,6 +99,19 @@ impl Drop for Library {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);
     }
+}
+
+/// Held by every test that runs scenes in this process. `capture` reads
+/// load failures back from one process-wide logger, so two such tests at
+/// once would each see the other's script errors (WSL2, 2026-11-05).
+static IN_PROCESS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Takes [`IN_PROCESS`]; a test that panicked holding it leaves nothing to
+/// repair, so a poisoned lock is taken as it is.
+fn in_process() -> std::sync::MutexGuard<'static, ()> {
+    IN_PROCESS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 fn require_gl() -> bool {
@@ -208,6 +223,7 @@ fn check_records(records: &[Record], dialect: Dialect) -> Result<()> {
 
 #[test]
 fn six_synthetic_scenes_in_process_in_both_dialects() -> Result<()> {
+    let _serial = in_process();
     let library = Library::new("inprocess")?;
     library.populate()?;
     capture::install();
@@ -398,5 +414,79 @@ fn the_command_line_writes_both_files_and_json_only_writes_one() -> Result<()> {
         "--json-only writes no markdown"
     );
     assert!(out.join("report.json").is_file(), "but the JSON");
+    Ok(())
+}
+
+/// The Shadertoy converter's own fixtures, converted as an import converts
+/// them and run through the harness the way a scene library is (G-01): each
+/// gets a record in both dialects, so an import that compiles in the
+/// converter's tests but not in the app's loader shows up here as a
+/// categorised failure rather than as nothing.
+#[test]
+fn shadertoy_fixtures_convert_and_pass_the_harness_in_both_dialects() -> Result<()> {
+    let fixtures =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../strobe-shadertoy/tests/fixtures");
+    let _serial = in_process();
+    let library = Library::new("shadertoy")?;
+    let mut names = Vec::new();
+    for entry in std::fs::read_dir(&fixtures)? {
+        let path = entry?.path();
+        if path.extension().is_none_or(|ext| ext != "json") {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path)?;
+        let shader = strobe_shadertoy::Shader::from_json(&text)
+            .map_err(|e| anyhow!("{}: {e}", path.display()))?;
+        let converted = strobe_shadertoy::convert(&shader, &strobe_shadertoy::Options::default())
+            .map_err(|e| anyhow!("{}: {e}", path.display()))?;
+        let dir = strobe_shadertoy::convert::write(&converted, &library.0, true)
+            .map_err(|e| anyhow!("{}: {e}", path.display()))?;
+        names.push(strobe_scene::load::folder_title(&dir));
+    }
+    assert!(
+        names.len() >= 9,
+        "every fixture converted and was written: {names:?}"
+    );
+    capture::install();
+    let settings = Settings {
+        frames: 2,
+        size: [32, 18],
+    };
+    for dialect in Dialect::ALL {
+        if !have_context(dialect.api())? {
+            continue;
+        }
+        let headless =
+            Headless::new(dialect.api()).map_err(|e| anyhow!("{dialect:?}: context: {e}"))?;
+        let gl = headless.gl();
+        let caps = Caps::from_info(gl.info());
+        let mut records = Vec::new();
+        for entry in strobe_scene::load::scan(&library.0)? {
+            records.push(run_scene(gl, &caps, &entry, dialect, &settings));
+        }
+        assert_eq!(
+            records.len(),
+            names.len(),
+            "{}: one record per converted fixture",
+            dialect.label()
+        );
+        for record in &records {
+            assert_eq!(
+                record.status,
+                Status::Ok,
+                "{}: {} ({:?}: {:?})",
+                dialect.label(),
+                record.scene,
+                record.cause,
+                record.error
+            );
+            assert!(
+                record.checksum.is_some() && record.frame_ms.is_some(),
+                "{}: {} has a frame and its time",
+                dialect.label(),
+                record.scene
+            );
+        }
+    }
     Ok(())
 }
