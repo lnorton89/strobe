@@ -29,7 +29,7 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:e2e:update": "playwright test --update-snapshots",
-    "test:play": "playwright test tests/e2e/play.spec.ts",
+    "test:play": "playwright test tests/e2e/play",
     "browser": "playwright install chromium --only-shell",
     "test:links": "start-server-and-test \"npx serve out -l 4173\" http://localhost:4173 \"linkinator http://localhost:4173 --recurse --silent --status-code 429:warn\"",
     "test:lighthouse": "lhci autorun",

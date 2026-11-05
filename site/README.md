@@ -49,9 +49,9 @@ block fails the build rather than rendering an empty section.
 - `npm run test:e2e` runs the browser tests (Playwright) against `out/`, so
   build first. A machine with its own Chromium can use it instead of the
   build Playwright pins: set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to its path.
-- `npm run test:play` runs `/play`'s smoke test alone
-  (`tests/e2e/play.spec.ts`): a library scene compiles and draws, and a
-  shader error is marked on its line. It asks Chromium for SwiftShader, so
+- `npm run test:play` runs `/play`'s specs alone (`tests/e2e/play*.spec.ts`;
+  the smoke test is `play.spec.ts`): a library scene compiles and draws, and
+  a shader error is marked on its line. It asks Chromium for SwiftShader, so
   it needs no GPU. `npm run browser` installs the headless Chromium it runs
   in.
 
