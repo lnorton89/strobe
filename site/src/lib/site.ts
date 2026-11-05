@@ -1,15 +1,11 @@
 /*
  * Single source of truth for the site's identity strings and navigation.
  *
- * The positioning line and the descriptor are the brand guide's own copy
- * (docs/branding.md, "Brand at a glance" and section 9), not rewritten here.
- */
-
-/**
- * The repository. Its slug is written here and nowhere else in the site's code
+ * The repository's slug is written here and nowhere else in the site's code
  * (tests/unit/hardcoded.test.ts holds that), so a move to another GitHub
  * organisation is one edit here and the `repository` fields of package.json.
  */
+
 export const REPO = "lnorton89/strobe";
 
 export const REPO_URL = `https://github.com/${REPO}`;
@@ -50,6 +46,7 @@ export const LICENCE = "Source-available: MIT with the Commons Clause";
 
 /** The metadata strip under the hero. */
 export const BADGES = ["Source-available", "Rust", "OpenGL 3.3"] as const;
+
 /**
  * What a release is fit for, beside its number. The number itself is never
  * written here: it comes from lib/release.ts.
@@ -101,7 +98,7 @@ export const NAV: readonly NavItem[] = [
   {
     href: "/play/",
     label: "Play",
-    blurb: "Write and run Strobe scenes in the browser.",
+    blurb: "Strobe's scene player in the browser, on WebGL2.",
     icon: "play",
   },
   {
@@ -113,7 +110,7 @@ export const NAV: readonly NavItem[] = [
   {
     href: "/architecture/",
     label: "Architecture",
-    blurb: "Fifteen crates, one frame loop, one GPU boundary.",
+    blurb: "The crate graph, the frame loop, the GPU boundary.",
     icon: "architecture",
   },
   {
