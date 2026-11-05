@@ -92,6 +92,31 @@ pub fn show_notice(text: &str) {
     }
 }
 
+/// Whether this process's standard output goes somewhere: a console, a
+/// pipe or a file. A release `strobe.exe` is a GUI program, so started from
+/// Explorer, a shortcut or a plain `cmd` prompt it has no output handle, and
+/// what it prints is lost. Redirected or piped (a script, `cargo xtask rc`),
+/// it has one, and the printed text is the answer.
+///
+/// [`show_notice`]'s box is for the first case only. Raised in the second,
+/// it outlived the process holding the caller's pipe, which inherited it.
+/// Nobody saw it in a harness run, so the pipe never closed and the harness
+/// "hung" after passing (LIGHTNING and T480, 2026-11-05, D551).
+#[cfg(windows)]
+pub fn stdout_is_read() -> bool {
+    use std::os::windows::io::AsRawHandle as _;
+    let handle = std::io::stdout().as_raw_handle();
+    // `GetStdHandle` gives null when there is none, and
+    // `INVALID_HANDLE_VALUE` (-1) when it failed.
+    !handle.is_null() && handle as isize != -1
+}
+
+/// Off Windows there is always a terminal or a pipe to print to.
+#[cfg(not(windows))]
+pub fn stdout_is_read() -> bool {
+    true
+}
+
 /// The icon a box shows, as `System.Windows.MessageBoxImage` names it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Icon {
@@ -162,6 +187,16 @@ mod tests {
         assert!(!text.contains("Minidump"), "no dump line expected:\n{text}");
         assert!(text.contains("internal error"), "panic wording:\n{text}");
         Ok(())
+    }
+
+    #[test]
+    fn a_test_run_has_an_output_someone_reads() {
+        // The test harness captures stdout, as `cargo xtask rc` reads
+        // `--diagnose`'s: no box is raised for a run like this (D551).
+        assert!(
+            stdout_is_read(),
+            "a captured stdout must count as read, or --diagnose raises a box nobody sees"
+        );
     }
 
     #[test]

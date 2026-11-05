@@ -29,7 +29,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-app
 
-45 decision(s).
+46 decision(s).
 
 - [D42](decisions/D42.md): release builds keep line tables and are not stripped
 - [D55](decisions/D55.md): macOS CI is two-tier until strobe-gfx has a CGL context
@@ -76,6 +76,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D534](decisions/D534.md): the script-aware corpus is a regression gate, with expectations and baseline frames
 - [D536](decisions/D536.md): one manifest pins the native DLLs; the SBOM, the build and `--diagnose` read it; scheduled checks watch what pushes cannot
 - [D544](decisions/D544.md): what the audit work had skipped: a static C runtime, the imports and the loaded ANGLE checked, the browser engine built, generators that reach the code, and a changelog that can be corrected
+- [D551](decisions/D551.md): `--diagnose` raises its box only when nothing reads its output, so a harness run ends
 
 ## strobe-audio
 
@@ -367,7 +368,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## xtask
 
-28 decision(s).
+29 decision(s).
 
 - [D50](decisions/D50.md): repository tooling is an `xtask` crate, not examples or scripts
 - [D63](decisions/D63.md): the Windows cross-check from Linux now excludes `strobe-app` too
@@ -397,6 +398,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D541](decisions/D541.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
 - [D544](decisions/D544.md): what the audit work had skipped: a static C runtime, the imports and the loaded ANGLE checked, the browser engine built, generators that reach the code, and a changelog that can be corrected
 - [D548](decisions/D548.md): a release waits in draft for the owner's approval, so its own archives are checked on a GPU first
+- [D551](decisions/D551.md): `--diagnose` raises its box only when nothing reads its output, so a harness run ends
 
 ## CI and releases
 
