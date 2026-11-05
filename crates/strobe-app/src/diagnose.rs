@@ -207,7 +207,10 @@ pub fn run() {
         ),
         Err(error) => eprintln!("Could not save {}: {error}", path.display()),
     }
-    if !cfg!(debug_assertions) {
+    // The box is for a double-clicked run, whose printed report goes
+    // nowhere. Piped or redirected, the text is read, and a box would
+    // outlive the run holding the reader's pipe (D551).
+    if !cfg!(debug_assertions) && !dialog::stdout_is_read() {
         dialog::show_notice(&format!("Diagnostic report saved to\n{}", path.display()));
     }
 }

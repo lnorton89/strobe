@@ -406,3 +406,13 @@ are the ones checked. The manual checks it lists (playlist, audio replug,
 fullscreen, `lose-context@60`) are covered on the mini PC (`MINIPC.md`,
 2026-11-04 and 05), apart from fullscreen and back and the C270 replug,
 which need a person there.
+
+### The harness that "hung" after passing (2026-11-05, D551)
+
+Run through a pipe, both v0.3.0 runs here (and the T480's) printed their
+pass, and the pipe then never closed. Reproduced with `cargo xtask rc …
+2>&1 | cat`. Once xtask had exited, the one process left was a hidden
+`powershell.exe` showing `--diagnose`'s "Diagnostic report saved to" box,
+from the package check. Closing it ended the pipe at once. With D551, on a
+`release-fast` package of the fix, the same piped run passed and ended by
+itself in 30 s, with no box left behind.
