@@ -3,7 +3,7 @@ export const ROUTES = [
   { name: "home", path: "/", heading: /Strobe/i, og: "/og-image.jpg", nav: false },
   { name: "download", path: "/download/", heading: /Unzip it and run it/, og: "/download/og-image.jpg", nav: true },
   { name: "guide", path: "/guide/", heading: /Running a show with Strobe/, og: "/guide/og-image.jpg", nav: true },
-  { name: "scenes", path: "/scenes/", heading: /Original scenes/, og: "/scenes/og-image.jpg", nav: true },
+  { name: "scenes", path: "/scenes/", heading: /The scene library/, og: "/scenes/og-image.jpg", nav: true },
   { name: "compatibility", path: "/compatibility/", heading: /What works, where/, og: "/compatibility/og-image.jpg", nav: true },
   { name: "architecture", path: "/architecture/", heading: /one GPU boundary/, og: "/architecture/og-image.jpg", nav: true },
   { name: "roadmap", path: "/roadmap/", heading: /What is built/, og: "/roadmap/og-image.jpg", nav: true },
