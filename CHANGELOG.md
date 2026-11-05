@@ -82,6 +82,7 @@ Nothing yet — the latest release is the tip of `master`.
 
 ### Documentation
 
+- D550's fixes pass on the mini PC, 51 fps through the prerender and no texture warnings after a rebuild ([`820ec42`](https://github.com/lnorton89/strobe/commit/820ec426abe7084270d63bef462aed39f93201b9))
 - the guide covers subfolder search, where imports go and rendered pictures, and #91's subjects name D546 and D547 ([`2e9e513`](https://github.com/lnorton89/strobe/commit/2e9e5131d53daf0656b9550db26b2b6b8dded8af))
 - a pre-release sweep brings the guides, READMEs and status docs up to what master does ([`78fb53b`](https://github.com/lnorton89/strobe/commit/78fb53bea3a11269443a3249dcd128def274fda5))
 - the records name the rewritten commits, and the rewrite is recorded (D549) ([`296ca83`](https://github.com/lnorton89/strobe/commit/296ca83853f0aaa380fb02e2f93a2f73ddf0c541))
