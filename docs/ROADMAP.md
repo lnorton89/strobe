@@ -692,11 +692,16 @@ never per frame.
   and `--no-synesthesia` turn it off. Checked with fake installs and a
   fake install over the private corpus on Xvfb; open: a real Windows
   install by a person.
+- Built since: `cubemap` inputs are scene cube maps with Shadertoy's face
+  names, order and `vflip`, and a `keyboard` input is its 256x3 texture
+  with every key up (D553, backlog I-06); the Needs-work bin is closed,
+  since the library's Needs work filter and the Diagnostics card hold the
+  same failures (D553).
 - Not supported:
-  - `cubemap` and `volume` inputs, and `sound` and `cubemap` passes: these
-    are errors;
-  - `keyboard`, `video` and `webcam` inputs: they read black, with a
-    warning;
+  - `volume` inputs, and `sound` and `cubemap` passes: these are errors
+    (D553);
+  - `video` and `webcam` inputs: they read black, with a warning; the
+    keyboard has no key feed, by decision (D553);
   - `srgb` textures: not decoded (Q16);
   - packing built-ins on a 3.30 context: not rewritten. Implicit
     int-to-float is written out by D199's typed rewrite (R8).

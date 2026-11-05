@@ -1005,6 +1005,84 @@ fn pass_sources_give_each_pass_its_own_program_even_with_colliding_names() -> Re
 }
 
 #[test]
+fn a_build_begun_polled_and_finished_draws_what_a_plain_build_draws() -> Result<()> {
+    // The hand load's path (D555): the shaders are handed to the driver,
+    // polled, and finished later. On a driver that compiles in the
+    // background `ready` turns true on its own; elsewhere it already is.
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let gl = headless.gl();
+        let caps = Caps::from_info(gl.info());
+        let scene = per_pass_folder(
+            TWO_PASSES,
+            &[
+                "vec4 renderMain() { return vec4(0.0, 1.0, 0.0, 1.0); }",
+                "vec4 renderMain() { return vec4(texture(buf, _uv).g, 0.0, 0.0, 1.0); }",
+            ],
+        )?;
+        let pending = ScenePlayer::begin(gl, &caps, &scene, [8, 8], Options::default(), &[])?;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !pending.ready(gl) {
+            if std::time::Instant::now() > deadline {
+                return Err(anyhow!("{api:?}: the driver never finished the programs"));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        let mut begun = pending.finish(gl, &caps)?;
+        let mut plain = ScenePlayer::new(gl, &caps, &scene, [8, 8], Options::default())?;
+        let controls = ControlBank::new(scene.def.controls.clone())?;
+        let audio = vec![0.0; SCALARS.len()];
+        let mut drawn = Vec::new();
+        for player in [&mut begun, &mut plain] {
+            player.render(&FrameInputs {
+                time: 0.0,
+                frame: 0,
+                mouse: Mouse::default(),
+                audio: &audio,
+                controls: &controls,
+                transitions: &[],
+            });
+            drawn.push(player.read_output().get(0..4).map(<[u8]>::to_vec));
+        }
+        assert_eq!(
+            drawn.first(),
+            drawn.get(1),
+            "{api:?}: a begun build draws what a plain one draws"
+        );
+        assert_eq!(
+            drawn
+                .first()
+                .cloned()
+                .flatten()
+                .and_then(|px| px.first().copied()),
+            Some(255),
+            "{api:?}: the final pass read the buffer pass's green into red"
+        );
+
+        // A broken pass is still named, at its own line, when finished.
+        let broken = per_pass_folder(
+            TWO_PASSES,
+            &[
+                "vec4 renderMain() {\n    return vec4(1.0);\n}\n",
+                "// line 1\n// line 2\nvec4 renderMain() {\n    return missingThing;\n}\n",
+            ],
+        )?;
+        let error = ScenePlayer::begin(gl, &caps, &broken, [8, 8], Options::default(), &[])
+            .and_then(|pending| pending.finish(gl, &caps))
+            .err()
+            .map(|e| e.to_string())
+            .unwrap_or_default();
+        assert!(
+            error.contains("pass 1") && error.contains("main.glsl:4"),
+            "{api:?}: expected pass 1, main.glsl:4 after a begun build, got: {error}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn a_compile_error_names_the_pass_file_and_its_own_line() -> Result<()> {
     let Some(headless) = context(Api::DesktopCore33)? else {
         return Ok(());

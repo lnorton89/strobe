@@ -30,6 +30,10 @@
 //! to check any of this against (Q22): it is the layout the six-path form
 //! implies plus the three single-image layouts people actually ship.
 //!
+//! An entry with `"VFLIP": true` (written by the Shadertoy importer for a
+//! cube map whose sampler says `vflip`, D553) is loaded as Shadertoy loads
+//! one: every face upside down, and the +Y and -Y pictures swapped.
+//!
 //! # `syn_Media` (D186)
 //!
 //! A [`MediaRequest`] names a file (a still) or a folder (an image
@@ -121,7 +125,7 @@ pub fn load_cubemap(dir: &Path, def: &CubemapDef) -> Result<CubeFaces, String> {
             "`{bad}` must be a relative path inside the scene folder"
         ));
     }
-    match def.paths.as_slice() {
+    let faces = match def.paths.as_slice() {
         [single] => split_single(open(&dir.join(single))?),
         paths if paths.len() == 6 => {
             let mut images = Vec::with_capacity(6);
@@ -134,6 +138,25 @@ pub fn load_cubemap(dir: &Path, def: &CubemapDef) -> Result<CubeFaces, String> {
             "a cube map needs six face paths or one strip/cross picture, got {} path(s)",
             other.len()
         )),
+    }?;
+    Ok(if def.vflip { flipped(faces) } else { faces })
+}
+
+/// The faces as Shadertoy uploads a cube map whose sampler says `vflip`
+/// (D553): with `UNPACK_FLIP_Y_WEBGL` on, each face upside down, and the
+/// pictures for +Y and -Y swapped so the sky stays up.
+fn flipped(cube: CubeFaces) -> CubeFaces {
+    let row = cube.size as usize * 4;
+    let [px, nx, py, ny, pz, nz] = cube.faces.map(|face| {
+        face.chunks_exact(row.max(1))
+            .rev()
+            .flatten()
+            .copied()
+            .collect::<Vec<u8>>()
+    });
+    CubeFaces {
+        size: cube.size,
+        faces: [px, nx, ny, py, pz, nz],
     }
 }
 
@@ -466,6 +489,7 @@ mod tests {
         CubemapDef {
             name: "env".to_string(),
             paths: paths.iter().map(|p| (*p).to_string()).collect(),
+            vflip: false,
         }
     }
 
@@ -482,6 +506,46 @@ mod tests {
         assert_eq!(cube.size, 4, "edge");
         for (i, face) in cube.faces.iter().enumerate() {
             assert_eq!(face[0], i as u8 * 40, "face {i} keeps its slot");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn vflip_turns_each_face_over_and_swaps_up_and_down_as_shadertoy_does() -> Result<()> {
+        // Face i is 2x2: its top row red i * 40, its bottom row green i * 40.
+        let scratch = Scratch::new("vflip")?;
+        let names = ["px", "nx", "py", "ny", "pz", "nz"];
+        for (i, name) in names.iter().enumerate() {
+            let level = i as u8 * 40;
+            let mut face = solid(2, 2, [level, 0, 0, 255]);
+            face.put_pixel(0, 1, Rgba([0, level, 0, 255]));
+            face.put_pixel(1, 1, Rgba([0, level, 0, 255]));
+            face.save(scratch.0.join(format!("{name}.png")))?;
+        }
+        let files: Vec<String> = names.iter().map(|n| format!("{n}.png")).collect();
+        let refs: Vec<&str> = files.iter().map(String::as_str).collect();
+        let mut def = cube(&refs);
+        let plain = load_cubemap(&scratch.0, &def).map_err(|e| anyhow!(e))?;
+        def.vflip = true;
+        let flipped = load_cubemap(&scratch.0, &def).map_err(|e| anyhow!(e))?;
+        // Shadertoy's piRenderer uploads image[3] to +Y and image[2] to -Y
+        // when it flips; the other faces keep their slot.
+        for (slot, source) in [0_usize, 1, 3, 2, 4, 5].into_iter().enumerate() {
+            let level = source as u8 * 40;
+            let (Some(face), Some(original)) = (flipped.faces.get(slot), plain.faces.get(source))
+            else {
+                return Err(anyhow!("six faces"));
+            };
+            assert_eq!(
+                face.get(..4),
+                Some(&[0, level, 0, 255][..]),
+                "slot {slot}: the top row is picture {source}'s bottom row"
+            );
+            assert_eq!(
+                face.get(8..12),
+                original.get(..4),
+                "slot {slot}: the bottom row is picture {source}'s top row"
+            );
         }
         Ok(())
     }

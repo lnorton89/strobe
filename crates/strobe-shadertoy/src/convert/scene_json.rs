@@ -40,6 +40,8 @@ struct Scene<'a> {
     passes: Vec<Pass>,
     pass_sources: Vec<String>,
     images: Vec<Image>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    cubemaps: Vec<Cubemap>,
     controls: Vec<Control>,
     source: Source<'a>,
 }
@@ -69,6 +71,17 @@ struct Image {
     path: String,
     wrap: &'static str,
     filter: &'static str,
+    vflip: bool,
+}
+
+/// A `CUBEMAPS` entry: six face paths in GL order (D185), and Shadertoy's
+/// `vflip` when it is on (D553).
+#[derive(Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+struct Cubemap {
+    name: String,
+    paths: Vec<String>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
     vflip: bool,
 }
 
@@ -231,12 +244,39 @@ pub(super) fn scene(plan: &Plan, shader: &Shader, title: &str, layouts: &[Layout
             vflip: i.vflip,
         })
         .collect();
+    if plan.keyboard_used {
+        images.push(Image {
+            name: names::KEYBOARD_IMAGE.to_string(),
+            path: names::KEYBOARD_FILE.to_string(),
+            wrap: "clamp",
+            filter: "nearest",
+            vflip: false,
+        });
+    }
     if plan.black_used {
         images.push(Image {
             name: names::BLACK_IMAGE.to_string(),
             path: names::BLACK_FILE.to_string(),
             wrap: "clamp",
             filter: "nearest",
+            vflip: false,
+        });
+    }
+    let mut cubemaps: Vec<Cubemap> = plan
+        .cubes
+        .iter()
+        .map(|c| Cubemap {
+            name: c.name.clone(),
+            paths: c.files.iter().map(|f| format!("images/{f}")).collect(),
+            vflip: c.vflip,
+        })
+        .collect();
+    if plan.black_cube_used {
+        // Six of the 1x1 black picture: a square face each, so it loads
+        // as a cube with nothing to report (D185).
+        cubemaps.push(Cubemap {
+            name: names::BLACK_CUBE.to_string(),
+            paths: vec![names::BLACK_FILE.to_string(); 6],
             vflip: false,
         });
     }
@@ -253,6 +293,7 @@ pub(super) fn scene(plan: &Plan, shader: &Shader, title: &str, layouts: &[Layout
         passes,
         pass_sources,
         images,
+        cubemaps,
         controls: controls(),
         source: Source {
             kind: "shadertoy",

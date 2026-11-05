@@ -51,7 +51,7 @@ The scene format gained a few keys for imports, documented in
 | `Shader::from_json` | Reads the API's `{"Shader": …}` wrapper or a bare `{info, renderpass}` export. An API `{"Error": …}` reply is a typed error |
 | `convert(&Shader, &Options) -> Converted` | Plans the passes, binds the channels, rewrites the dialect, and generates the shim and `scene.json` |
 | `write(&Converted, library, replace)` | Writes the scene folder into a hidden staging folder, then renames it into place in one step |
-| `convert::Warning` | A lossy conversion, such as a video input bound to black or a missing texture |
+| `convert::Warning` | A lossy conversion, such as a video input bound to black, a missing texture or cube face, or a keyboard with no key feed |
 | `convert::ConvertError` | Something that cannot be converted, naming the pass and channel |
 | `dialect`, `glsl` | The lossless tokenizer and the token-level rewrites (D94) |
 
@@ -80,7 +80,8 @@ The result is `<name>-<id>.synScene/`, containing:
 - `main.glsl`: the Image pass;
 - `passes/*.glsl`: buffers A to D, plus a one-pixel clock pass when
   anything reads time;
-- `images/`: fetched textures, a black placeholder, and
+- `images/`: fetched textures and cube faces, a black placeholder, the
+  keyboard picture when a pass reads the keyboard, and
   `pending-assets.json` listing the URLs still to fetch.
 
 Open it in the app like any other scene, or render it with `strobe-bench`.
@@ -95,6 +96,16 @@ How Shadertoy maps onto the scene:
   its previous frame, as on Shadertoy.
 - **Audio:** `music`, `musicstream` and `mic` inputs sample a live 512x2
   audio texture with Shadertoy's layout (`strobe_ShadertoyAudio`).
+- **Cube maps (D553):** a `cubemap` input is a scene `CUBEMAPS` entry,
+  `st_cube<n>`, behind `iChannelN`. Its six faces are named as Shadertoy
+  names them (`x.jpg`, then `x_1.jpg` to `x_5.jpg`), fetched like
+  textures, and used in GL's order +X, -X, +Y, -Y, +Z, -Z, as decoded. A
+  sampler's `vflip` sets the entry's `VFLIP`, which turns each face over
+  and swaps +Y and -Y, as Shadertoy's renderer does. With a face missing
+  the channel reads a black cube.
+- **Keyboard (D553):** a `keyboard` input reads Shadertoy's 256x3 layout
+  (row 0 held, row 1 pressed this frame, row 2 toggled) with every key
+  up, so `texelFetch` at a key code reads 0. No key reaches a scene.
 - **Controls:** every import gets a "Strobe" group: `st_speed`,
   `st_audio_time`, `st_bass_flash`, `st_zoom` and `st_hue` (D92).
 
@@ -127,7 +138,8 @@ STROBE_REQUIRE_HEADLESS_GL=1 cargo test -p strobe-shadertoy   # fail instead of 
   - sampler-as-parameter and `const int` switch traps, and a legacy
     `texture2D`/`gl_FragColor` shader;
   - a music input, a missing texture, and helper-name collisions between
-    buffers.
+    buffers;
+  - a cube-map input and a keyboard read (D553).
   
   Shadertoy itself is unreachable from CI (Cloudflare), and unlicensed
   third-party shaders must not be committed.
@@ -165,13 +177,20 @@ IDs given here; a gap with no ID is by design, with its decision named.
   yet: the REST API answered the T480 with a Cloudflare 403, and the
   userscript's route to the page's JSON is unverified on the live site
   (Q19, backlog I-01). Generated controls are reviewed and saved in the app
-  (D202, D219, D488; the engine is `strobe-autocontrol`). **Not built:**
-  PLAN.md's Needs-work bin, which keeps a failed import with its log
-  (backlog I-06).
-- **Unsupported inputs** (backlog I-06): `cubemap` and `volume` inputs, and
-  `sound` and `cubemap` passes, are errors. `keyboard`, `video` and
-  `webcam` read black, with a warning. `srgb` textures are not decoded
-  (Q16).
+  (D202, D219, D488; the engine is `strobe-autocontrol`).
+- **No Needs-work bin** (by design, D553): a shader that cannot convert is
+  refused before anything is written, and one that does not compile is in
+  the library's Needs work filter and the Diagnostics pane's card (D483).
+- **Refused passes and inputs** (by design, D553): `cubemap` passes and an
+  input reading one, `volume` inputs, and `sound` passes are errors naming
+  the pass and channel.
+- **No key feed** (by design, D553): a `keyboard` input has every key up,
+  with a warning.
+- **Black inputs** (backlog M-04): `video` and `webcam` inputs read black,
+  with a warning.
+- **sRGB** (Q16): `srgb` textures are not decoded.
+- **Cube maps on hardware** (backlog I-06): the cube-map and keyboard
+  fixtures have rendered on llvmpipe only.
 - **Audio:** the app supplies the browser-matched `AudioFrame::shadertoy`
   slice, and the player uploads it as given (D112). The bench and tests,
   with no slice, resample the 1024-texel spectrum (D269). A comparison against
@@ -182,8 +201,9 @@ IDs given here; a gap with no ID is by design, with its decision named.
   pass is kept (`KEEP_ON_RESIZE`), while the `st_frame` pass beside it
   restarts with the buffers it feeds, so `iFrame` is back at 0 when they
   were wiped (D495).
-- **Verified so far:** all nine fixtures render on llvmpipe in both
-  dialects, and on the T480 (Task 11) and TORNADO (T1), native and ANGLE.
+- **Verified so far:** all eleven fixtures render on llvmpipe in both
+  dialects, and the first nine on the T480 (Task 11) and TORNADO (T1),
+  native and ANGLE.
   Strict desktop drivers accept a shader that defines a built-in such as
   `tanh`: the `legacy` fixture compiled on the T480 on both backends (R6,
   was Q17).
