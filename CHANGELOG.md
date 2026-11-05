@@ -13,7 +13,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 Nothing yet — the latest release is the tip of `master`.
 
-## [0.3.0] - 2026-11-04
+## [0.3.0] - 2026-11-05
 
 ### Added
 
@@ -46,6 +46,7 @@ Nothing yet — the latest release is the tip of `master`.
 
 ### Fixed
 
+- background compiles leave the output four fifths of the time, and a rebuilt context reloads the thumbnails (D550) ([`62f7c6b`](https://github.com/lnorton89/strobe/commit/62f7c6b59bd3da3a8421e755d2134487e8b9fa37))
 - the QuickJS and MIDI timing tests run alone under nextest on this branch too ([`18fcd4b`](https://github.com/lnorton89/strobe/commit/18fcd4b5c7ebfd2b99d981ec80cd8a258e5f93de))
 - the prerender doc names its function-local gap in plain code, which rustdoc cannot link ([`570d663`](https://github.com/lnorton89/strobe/commit/570d6636e83d23566a24004a6f53eba8f6f391ee))
 - client-list saves take turns under a process-wide lock instead ([`f001763`](https://github.com/lnorton89/strobe/commit/f001763dac3d1f932b99b4b4e64953efd5b6547a))
