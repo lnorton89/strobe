@@ -104,6 +104,43 @@ mod tests {
         Ok(())
     }
 
+    /// The website's engine is bound by `wasm-bindgen`, whose CLI must be
+    /// the version of the crate Cargo.lock holds: any other refuses the
+    /// module or writes bindings the crate does not match. The `site` job
+    /// installs it by version (D552), so a dependency update that moves the
+    /// crate must move the workflow too, and this is what notices.
+    #[test]
+    fn the_wasm_bindgen_cli_ci_installs_is_the_one_cargo_lock_pins() -> Result<()> {
+        let lock = fs::read_to_string(workspace_root()?.join("Cargo.lock"))?;
+        let mut lines = lock.lines();
+        let pinned = lines
+            .by_ref()
+            .find(|line| line.trim() == "name = \"wasm-bindgen\"")
+            .and_then(|_| lines.next())
+            .and_then(|line| line.trim().strip_prefix("version = "))
+            .map(|version| version.trim_matches('"').to_owned())
+            .ok_or_else(|| anyhow!("Cargo.lock has no wasm-bindgen entry"))?;
+        let mut installs = 0;
+        for (name, text) in workflows()? {
+            for declared in text
+                .lines()
+                .filter_map(|line| line.trim().strip_prefix("tool: wasm-bindgen@"))
+            {
+                installs += 1;
+                assert_eq!(
+                    declared.trim(),
+                    pinned,
+                    "{name} installs wasm-bindgen {declared} but Cargo.lock pins {pinned}"
+                );
+            }
+        }
+        assert!(
+            installs > 0,
+            "no workflow installs wasm-bindgen, so CI never builds the site's engine"
+        );
+        Ok(())
+    }
+
     #[test]
     fn no_workflow_installs_a_floating_stable_toolchain() -> Result<()> {
         for (name, text) in workflows()? {

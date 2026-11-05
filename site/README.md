@@ -49,6 +49,21 @@ block fails the build rather than rendering an empty section.
 - `npm run test:e2e` runs the browser tests (Playwright) against `out/`, so
   build first. A machine with its own Chromium can use it instead of the
   build Playwright pins: set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to its path.
+- `npm run test:play` runs `/play`'s specs alone (`tests/e2e/play*.spec.ts`;
+  the smoke test is `play.spec.ts`): a library scene compiles and draws, and
+  a shader error is marked on its line. It asks Chromium for SwiftShader, so
+  it needs no GPU. `npm run browser` installs the headless Chromium it runs
+  in.
+
+## In CI
+
+CI's `site` job (D552) runs `cargo xtask ci --strict site` from the
+repository root on every pull request that touches the site, the scenes or
+a crate the engine is built from: `npm ci`, lint, typecheck, the unit
+tests, `npm run build` (the engine included, built `--locked` and bound by
+`wasm-bindgen` at Cargo.lock's version) and `npm run test:play`. The same
+lane runs on a desk with `cargo xtask ci site`. Node is the release in
+`.nvmrc`.
 
 ## Deploying
 
