@@ -186,16 +186,12 @@ export default async function Home() {
       </section>
 
       <section className="border-hairline border-b">
-        <div className="mx-auto max-w-350 px-6 py-24 sm:px-10">
-          <SectionHeading
-            title="The scene library"
-            note={content.block("scenes-note")}
-            icon={ScenesIcon}
-          />
+        <div className="mx-auto max-w-350 px-6 py-20 sm:px-10 sm:py-24">
+          <SectionHeading title="The scene library" icon={ScenesIcon} />
           <Reveal className="mt-9 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-            <p className="text-secondary max-w-[72ch] text-[16.5px] leading-[1.7] text-pretty">
-              {content.block("scenes")}
-            </p>
+            <div className="text-secondary max-w-[72ch] text-[16.5px] leading-[1.7] text-pretty [&_code]:font-mono [&_code]:text-[0.9em]">
+              <InlineMarkdown>{content.block("scenes")}</InlineMarkdown>
+            </div>
             <ArrowLink href="/scenes/" className="flex-none">
               All {scenes.length} scenes
             </ArrowLink>

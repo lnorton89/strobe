@@ -105,16 +105,13 @@ T480 (Intel UHD 620) through native OpenGL. The tick is the 16.7 ms budget of a
 60 Hz refresh. Volume Clouds is the stress scene at the top of the load ladder and
 does not run at this GPU's frame rate at any scale.
 
-<!-- @scenes-note -->
-
-Rendered from scenes/ at build time
-
 <!-- @scenes -->
 
-Strobe ships with an original scene library spanning five tiers of GPU load,
-from a drifting gradient to raymarched clouds, plus a scripted physics scene
-and a set of feedback-driven paint studies. Every thumbnail below is a real
-frame from the scene it names.
+The library is original work. Ten scenes span five tiers of GPU load, from a
+drifting gradient to raymarched clouds, and they are what `strobe-bench` times on
+every machine. The rest are a scripted physics scene, a fictional circuit board
+and five audio-reactive show pieces. Open any of them in the browser sandbox,
+which runs Strobe's own player as WebAssembly.
 
 <!-- @compare-note -->
 
