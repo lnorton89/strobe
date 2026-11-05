@@ -18,22 +18,6 @@
 # Deploys are run by hand from this directory (`npm run deploy`), not on push.
 # This file only describes how a build would run if one were triggered.
 
-# The social images are route handlers at /og-image, so the files they emit
-# have no extension and a static host has nothing to infer a type from — it
-# would serve them as a generic download, which every social scraper rejects.
-# These rules restore the real type. tests/e2e/metadata.spec.ts asserts the
-# images are valid PNGs and tests/unit/netlify-config.test.ts asserts these
-# rules exist, since the local test server has no netlify.toml to read.
-[[headers]]
-  for = "/og-image"
-  [headers.values]
-    Content-Type = "image/png"
-
-[[headers]]
-  for = "/*/og-image"
-  [headers.values]
-    Content-Type = "image/png"
-
 [[headers]]
   for = "/_next/static/*"
   [headers.values]

@@ -13,27 +13,16 @@ import {
   GuideIcon,
   ShellIcon,
 } from "@/components/brand/icons";
-import { ogImageMetadata } from "@/lib/og-image";
+import { pageMetadata } from "@/lib/og/metadata";
 import { readPageContent } from "@/lib/page-content";
 import { latestRelease, releaseLabel } from "@/lib/release";
 import { DEFAULT_BRANCH, REPO_URL } from "@/lib/site";
 
-/** Social image copy, rendered by ./og-image/route.tsx. */
-export const og = {
-  eyebrow: "Download",
-  title: "Unzip it and run it.",
-  description:
-    "A Windows release with no installer and an ANGLE fallback beside it; Linux from source with a package list and a Nix flake.",
-  alt: "Strobe social card — download and build.",
-};
-
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata("/download/", {
   title: "Download",
   description:
     "Download Strobe for Windows, or build it on Linux from source with apt, dnf, pacman or the Nix flake. What the machine needs, and where Strobe keeps its settings.",
-  alternates: { canonical: "/download/" },
-  ...ogImageMetadata("/download/", og),
-};
+});
 
 /** One part of the page, with its own section rule. */
 function Step({

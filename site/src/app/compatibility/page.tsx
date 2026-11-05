@@ -1,25 +1,14 @@
 import type { Metadata } from "next";
 import RepoDocPage from "@/components/RepoDocPage";
 import { CompatibilityIcon } from "@/components/brand/icons";
-import { ogImageMetadata } from "@/lib/og-image";
+import { pageMetadata } from "@/lib/og/metadata";
 import { linkRepoFile, readRepoDoc } from "@/lib/repo-docs";
 
-/** Social image copy, rendered by ./og-image/route.tsx. */
-export const og = {
-  eyebrow: "Compatibility",
-  title: "What works, where, and the evidence.",
-  description:
-    "Supported, degraded, unsupported and unverified: the scene format, scripts, real Synesthesia scenes, Shadertoy, graphics backends, audio, playlists and show control.",
-  alt: "Strobe social card — the compatibility matrix.",
-};
-
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata("/compatibility/", {
   title: "Compatibility",
   description:
     "Strobe's compatibility matrix: which SSF features, scripts, Synesthesia scenes, GPUs, drivers and controllers are supported, degraded or unverified, each with its evidence.",
-  alternates: { canonical: "/compatibility/" },
-  ...ogImageMetadata("/compatibility/", og),
-};
+});
 
 export default async function CompatibilityPage() {
   const markdown = await readRepoDoc("docs/COMPATIBILITY.md");

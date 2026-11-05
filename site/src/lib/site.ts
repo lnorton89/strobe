@@ -130,6 +130,8 @@ export const EXPORTED_ROUTES = [
   "/roadmap/",
 ] as const;
 
+export type ExportedRoute = (typeof EXPORTED_ROUTES)[number];
+
 /** Backwards-compatible route registry name used by export checks. */
 export const ROUTES = EXPORTED_ROUTES;
 

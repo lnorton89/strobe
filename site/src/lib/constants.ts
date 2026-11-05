@@ -54,4 +54,3 @@ export const ICON = {
 
 /** Social images are the standard 1.91:1 card. */
 export const OG_SIZE = { width: 1200, height: 630 } as const;
-export const OG_CONTENT_TYPE = "image/png";

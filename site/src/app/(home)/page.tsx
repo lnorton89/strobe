@@ -27,14 +27,6 @@ import { readScenes } from "@/lib/scenes";
 import { latestRelease, releaseLabel } from "@/lib/release";
 import { BADGES, RELEASE_STAGE, REPO_URL } from "@/lib/site";
 
-export const og = {
-  eyebrow: "Open-source VJ engine",
-  title: "Audio-reactive shaders for screens, projectors and LED walls.",
-  description:
-    "Plays Synesthesia scenes as they are, imports Shadertoy shaders and runs long playlists — built to stay up on old laptops.",
-  alt: "Strobe — audio-reactive shaders for screens, projectors and LED walls.",
-};
-
 /**
  * The icon each feature is drawn with, bound to its `###` heading in
  * content.md by slug. Rewording a heading without updating this fails the

@@ -2,8 +2,7 @@ import type { Metadata } from "next";
 import localFont from "next/font/local";
 import SiteHeader from "@/components/SiteHeader";
 import SiteFooter from "@/components/SiteFooter";
-import { og } from "./(home)/page";
-import { ogImage } from "@/lib/og-image";
+import { pageMetadata } from "@/lib/og/metadata";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import { DESCRIPTION, SITE_URL, TAGLINE } from "@/lib/site";
 import "./globals.css";
@@ -51,14 +50,15 @@ const jetbrainsMono = localFont({
 const TITLE = `Strobe — ${TAGLINE}`;
 
 export const metadata: Metadata = {
+  ...pageMetadata("/", {
+    title: {
+      default: TITLE,
+      template: "%s · Strobe",
+    },
+    description: DESCRIPTION,
+  }),
   metadataBase: new URL(SITE_URL),
-  title: {
-    default: TITLE,
-    template: "%s · Strobe",
-  },
-  description: DESCRIPTION,
   applicationName: "Strobe",
-  alternates: { canonical: "/" },
   icons: {
     icon: [
       { url: "/generated/brand/icon-small.svg", type: "image/svg+xml" },
@@ -77,21 +77,6 @@ export const metadata: Metadata = {
     "Rust",
     "OpenGL",
   ],
-  openGraph: {
-    siteName: "Strobe",
-    title: TITLE,
-    description: DESCRIPTION,
-    type: "website",
-    locale: "en_US",
-    url: "/",
-    images: [ogImage("/", og)],
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: TITLE,
-    description: DESCRIPTION,
-    images: [ogImage("/", og)],
-  },
 };
 
 export default function RootLayout({

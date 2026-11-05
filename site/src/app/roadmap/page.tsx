@@ -10,26 +10,15 @@ import { GitHubIcon, GuideIcon, RoadmapIcon } from "@/components/brand/icons";
 import { CONTAINER } from "@/lib/constants";
 import { COMMITS_URL, fetchCommits } from "@/lib/github";
 import { isShallow, readGitLog } from "@/lib/git-log";
-import { ogImageMetadata } from "@/lib/og-image";
+import { pageMetadata } from "@/lib/og/metadata";
 import { readPageContent } from "@/lib/page-content";
 import { linkRepoFile, readRepoDoc, splitRoadmap } from "@/lib/repo-docs";
 
-/** Social image copy, rendered by ./og-image/route.tsx. */
-export const og = {
-  eyebrow: "Roadmap",
-  title: "What is built, and where it was proved.",
-  description:
-    "The roadmap and status of Strobe: what is implemented and integrated, what is in flight, the priorities next, and the known gaps.",
-  alt: "Strobe social card — the roadmap.",
-};
-
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata("/roadmap/", {
   title: "Roadmap",
   description:
     "Strobe's roadmap: what is implemented and on which machine it was verified, what is in flight, what comes next, and the known gaps — with the repository's recent activity.",
-  alternates: { canonical: "/roadmap/" },
-  ...ogImageMetadata("/roadmap/", og),
-};
+});
 
 export default async function RoadmapPage() {
   const [document, content, commits] = await Promise.all([

@@ -1,25 +1,14 @@
 import type { Metadata } from "next";
 import RepoDocPage from "@/components/RepoDocPage";
 import { GuideIcon } from "@/components/brand/icons";
-import { ogImageMetadata } from "@/lib/og-image";
+import { pageMetadata } from "@/lib/og/metadata";
 import { linkRepoFile, readRepoDoc } from "@/lib/repo-docs";
 
-/** Social image copy, rendered by ./og-image/route.tsx. */
-export const og = {
-  eyebrow: "User guide",
-  title: "Running a show with Strobe.",
-  description:
-    "Install, first run, scenes, audio, the output, playlists, MIDI and OSC, remote control from a phone, Shadertoy import and what to do when something goes wrong.",
-  alt: "Strobe social card — the user guide.",
-};
-
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata("/guide/", {
   title: "User guide",
   description:
     "How to run Strobe: install, the control and output windows, scenes and controls, audio, playlists, MIDI and OSC, phone remotes, venue mode and Shadertoy import.",
-  alternates: { canonical: "/guide/" },
-  ...ogImageMetadata("/guide/", og),
-};
+});
 
 export default async function GuidePage() {
   const markdown = await readRepoDoc("docs/USER_GUIDE.md");

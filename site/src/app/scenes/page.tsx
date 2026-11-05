@@ -7,26 +7,15 @@ import ShellBlock from "@/components/ShellBlock";
 import { GridFill, Prose, SourceNote } from "@/components/ui";
 import { ScenesIcon, ShellIcon } from "@/components/brand/icons";
 import { CONTAINER } from "@/lib/constants";
-import { ogImageMetadata } from "@/lib/og-image";
+import { pageMetadata } from "@/lib/og/metadata";
 import { readScenes } from "@/lib/scenes";
 import { DEFAULT_BRANCH, REPO_URL } from "@/lib/site";
 
-/** Social image copy, rendered by ./og-image/route.tsx. */
-export const og = {
-  eyebrow: "Scene library",
-  title: "Original scenes, every one a real frame.",
-  description:
-    "Five tiers of GPU load from a drifting gradient to raymarched clouds, a scripted physics scene, and feedback-driven paint studies. All original work, MIT licensed.",
-  alt: "Strobe social card — the scene library.",
-};
-
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata("/scenes/", {
   title: "Scenes",
   description:
     "The original scenes that ship with Strobe: benchmark tiers from a gradient to volumetric clouds, a script.js physics scene, and audio-reactive feedback studies.",
-  alternates: { canonical: "/scenes/" },
-  ...ogImageMetadata("/scenes/", og),
-};
+});
 
 export default async function ScenesPage() {
   const scenes = await readScenes();
