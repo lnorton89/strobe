@@ -34,7 +34,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+use std::time::{Duration, Instant, SystemTime};
 
 /// What a scene folder holds, enough to tell that it changed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -165,6 +165,25 @@ impl<T> Prerender<T> {
     }
 }
 
+/// The least time between two steps that compile a scene (D542).
+pub const MIN_GAP: Duration = Duration::from_millis(50);
+
+/// For each moment a step held the frame loop, the output gets this many
+/// to draw before the next step (D550). So it keeps at least four fifths of
+/// the time on a machine of any speed. A fixed gap did not: on the mini
+/// PC's Vega 3, compiles of up to 4.3 s with 50 ms between them left the
+/// output at 7 fps for the minute the library took.
+pub const DRAW_PER_STEP: u32 = 4;
+
+/// When the step after one that ran from `began` to `ended` may start:
+/// [`DRAW_PER_STEP`] times its cost later, and never sooner than
+/// [`MIN_GAP`].
+pub fn next_step(began: Instant, ended: Instant) -> Instant {
+    let cost = ended.saturating_duration_since(began);
+    let gap = MIN_GAP.max(cost.saturating_mul(DRAW_PER_STEP));
+    ended.checked_add(gap).unwrap_or(ended)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -193,6 +212,37 @@ mod tests {
 
     fn dirs(names: &[&str]) -> Vec<PathBuf> {
         names.iter().map(PathBuf::from).collect()
+    }
+
+    #[test]
+    fn the_output_keeps_four_fifths_of_the_time_however_slow_a_step_is() -> Result<()> {
+        let began = Instant::now();
+        for cost_ms in [0_u64, 5, 12, 100, 400, 4300] {
+            let ended = began + Duration::from_millis(cost_ms);
+            let next = next_step(began, ended);
+            let gap = next.duration_since(ended);
+            assert!(gap >= MIN_GAP, "{cost_ms} ms: never sooner than the floor");
+            let cost = ended.duration_since(began);
+            assert!(
+                gap >= cost * DRAW_PER_STEP,
+                "{cost_ms} ms: the output draws {DRAW_PER_STEP} times as long as the step held it"
+            );
+            let share = gap.as_secs_f64() / (gap + cost).as_secs_f64();
+            // At exactly four times the cost the share is 0.8, which f64
+            // may hold a hair under.
+            assert!(
+                share >= 0.8 - 1e-9,
+                "{cost_ms} ms: the output's share is {share:.2}"
+            );
+        }
+        // A cheap step keeps the old pace: the floor, not a multiple.
+        let quick = began + Duration::from_millis(2);
+        assert_eq!(
+            next_step(began, quick).duration_since(quick),
+            MIN_GAP,
+            "a 2 ms step waits the 50 ms floor"
+        );
+        Ok(())
     }
 
     #[test]

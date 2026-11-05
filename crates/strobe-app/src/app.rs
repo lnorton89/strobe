@@ -660,9 +660,12 @@ struct Running {
     /// The folder stamp of the live scene, taken before it was read, so it
     /// can be parked with the prerendered ones when it is replaced (D542).
     live_stamp: Option<Stamp>,
-    /// When the last scene was prerendered, so the output draws between
-    /// two (D542).
-    prerender_last: Instant,
+    /// When the next scene may be prerendered: after the output has drawn
+    /// for a multiple of what the last one cost (D542, D550).
+    prerender_next: Instant,
+    /// When the thumbnail job may load its next scene, by the same rule
+    /// (D547, D550).
+    thumbnail_next: Instant,
     /// When the prerender in progress began, for its log line.
     prerender_began: Option<Instant>,
     /// `--no-prerender`: off this run, whatever Settings says (D542).
@@ -1076,7 +1079,8 @@ impl Running {
             pending_cue_import: None,
             pack: None,
             live_stamp: None,
-            prerender_last: Instant::now(),
+            prerender_next: Instant::now(),
+            thumbnail_next: Instant::now(),
             prerender_began: None,
             prerender_off_this_run: cli.no_prerender,
             thumbnails: thumbnails::Queue::default(),
@@ -1224,7 +1228,14 @@ impl Running {
                 }
                 running.load(index);
             }
-            None if playlist != LaunchPlaylist::Loaded && !last.is_empty() => {
+            // Only when the last session's scene was the one to reopen: a
+            // `--scene` or a screenshot chose otherwise, and saying it is
+            // missing then was false (mini PC, 2026-11-04).
+            None if playlist != LaunchPlaylist::Loaded
+                && cli.scene.is_none()
+                && cli.screenshot.is_none()
+                && !last.is_empty() =>
+            {
                 log::info!("the last session's scene {last} is not in the library");
             }
             None => {}
@@ -1518,6 +1529,9 @@ impl Running {
             ..self
         };
         log::info!("GL: {}", running.gl_summary);
+        // The new control window has a new egui context and painter: the
+        // thumbnails uploaded through the old one are not in it (D550).
+        running.ui_state.thumbs.forget_textures();
         running.stack.perf.resume_scale(carried.scale);
         running.refresh_monitors(event_loop);
         if let Some((source, playlist, point)) = reload {
@@ -2374,20 +2388,18 @@ impl Running {
     }
 
     /// Prerenders the next queued scene (D542): loaded at 1x1, drawn once,
-    /// parked. One scene per step, at most one step per
-    /// `PRERENDER_GAP` (50 ms), and none while a playlist is loaded (its own
-    /// precompile and its cues come first), a load is waiting, the context
-    /// is being rebuilt or a screenshot is being taken.
+    /// parked. One scene per step, each after the output has drawn for four
+    /// times what the last step cost (`prerender::next_step`, D550), and
+    /// none while a playlist is loaded (its own precompile and its cues
+    /// come first), a load is waiting, the context is being rebuilt or a
+    /// screenshot is being taken.
     fn step_prerender(&mut self, now: Instant) {
-        /// The least time between two prerendered scenes, so the output
-        /// draws in between.
-        const PRERENDER_GAP: Duration = Duration::from_millis(50);
         if !self.prerender_on()
             || self.stack.show.is_some()
             || self.pending_load.is_some()
             || self.rebuild.is_some()
             || self.screenshot.is_some()
-            || now.duration_since(self.prerender_last) < PRERENDER_GAP
+            || now < self.prerender_next
         {
             return;
         }
@@ -2405,12 +2417,13 @@ impl Running {
             .iter()
             .position(|entry| entry.dir == dir)
             .filter(|_| live != Some(dir.as_path()));
+        let began = Instant::now();
         if let Some(index) = found
             && self.make_current(Surface::Output)
         {
             self.prerender_one(index, dir);
         }
-        self.prerender_last = Instant::now();
+        self.prerender_next = prerender::next_step(began, Instant::now());
         if self.stack.prerendered.remaining() == 0
             && let Some(began) = self.prerender_began.take()
         {
@@ -3670,7 +3683,14 @@ impl Running {
             return;
         }
         let Some((mut session, left)) = self.stack.thumbnail.take() else {
+            // Loading the next scene compiles it, which holds the frame
+            // loop: the output draws for four times as long first (D550).
+            let now = Instant::now();
+            if now < self.thumbnail_next {
+                return;
+            }
             self.start_thumbnail();
+            self.thumbnail_next = prerender::next_step(now, Instant::now());
             return;
         };
         let frames = left.min(thumbnails::FRAMES_PER_STEP);
