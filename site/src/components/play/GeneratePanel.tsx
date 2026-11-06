@@ -226,9 +226,33 @@ export default function GeneratePanel({
           aria-label="Proposed controls"
           data-testid="generate-review"
         >
-          <h3 className="text-text text-sm font-semibold">
-            {keeping} of {rows.length} proposed control{rows.length === 1 ? "" : "s"} kept
-          </h3>
+          {/* First, not last: a long list runs past the bottom of this pane. */}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-text text-sm font-semibold">
+              {keeping} of {rows.length} proposed control{rows.length === 1 ? "" : "s"} kept
+            </h3>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                className={PRIMARY}
+                disabled={keeping === 0 || stale}
+                onClick={accept}
+              >
+                Add {keeping} control{keeping === 1 ? "" : "s"}
+              </button>
+              <button type="button" className={BUTTON} onClick={dismiss}>
+                Discard
+              </button>
+            </div>
+          </div>
+          {stale ? (
+            <p className="text-magenta text-xs">
+              The scene has changed since it was measured. Generate again to add controls to it.
+            </p>
+          ) : null}
+          {state.problem ? (
+            <p className="text-magenta text-xs wrap-anywhere">{state.problem}</p>
+          ) : null}
           <p className="text-secondary text-xs">
             Measured in {state.seconds.toFixed(1)} s. At their defaults the picture is the
             original&apos;s ({faithful}). Nothing changes until you add them.
@@ -258,27 +282,6 @@ export default function GeneratePanel({
               Audio idea: {line}
             </p>
           ))}
-          {stale ? (
-            <p className="text-magenta text-xs">
-              The scene has changed since it was measured. Generate again to add controls to it.
-            </p>
-          ) : null}
-          {state.problem ? (
-            <p className="text-magenta text-xs wrap-anywhere">{state.problem}</p>
-          ) : null}
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              className={PRIMARY}
-              disabled={keeping === 0 || stale}
-              onClick={accept}
-            >
-              Add {keeping} control{keeping === 1 ? "" : "s"}
-            </button>
-            <button type="button" className={BUTTON} onClick={dismiss}>
-              Discard
-            </button>
-          </div>
         </section>
       );
     }
