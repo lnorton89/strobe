@@ -269,6 +269,39 @@ test("a review keeps, drops and renames, and the result survives a reload", asyn
   }
 });
 
+test("a range is typed as a person types it, a negative number included", async ({ page }) => {
+  await openStored(page, { title: "bars", files: { "main.glsl": BARS } });
+  await generateButton(page).click();
+  await expect(review(page)).toBeVisible({ timeout: 120_000 });
+
+  // A key at a time: "-" and "." alone read as empty until the digit comes.
+  const low = review(page).locator('input[id$="-min"]').first();
+  const high = review(page).locator('input[id$="-max"]').first();
+  await low.selectText();
+  await page.keyboard.type("-1", { delay: 20 });
+  await expect(low).toHaveValue("-1");
+  await high.selectText();
+  await page.keyboard.type(".5", { delay: 20 });
+  await expect(high).toHaveValue(".5");
+
+  // Half a number changes nothing, and leaving the field shows what the row has.
+  await high.selectText();
+  await page.keyboard.type("-", { delay: 20 });
+  await low.focus();
+  await expect(high).toHaveValue("0.5");
+
+  // The first slider's default is above that top, so the top widens to hold it (D219).
+  const name = await review(page).locator('input[id$="-name"]').first().inputValue();
+  await review(page).getByRole("button", { name: /^Add \d+ controls?$/ }).click();
+  await expect(accepted(page)).toBeVisible();
+  const scene = JSON.parse((await saved(page)).files["scene.json"] ?? "{}") as {
+    CONTROLS?: { NAME: string; MIN?: number; DEFAULT?: number; MAX?: number }[];
+  };
+  const control = scene.CONTROLS?.find((entry) => entry.NAME === name);
+  expect(control?.MIN, "the typed lowest value reaches scene.json").toBe(-1);
+  expect(control?.MAX, "the top holds the default").toBe(control?.DEFAULT);
+});
+
 test("a scene with its own controls keeps them", async ({ page }) => {
   const json =
     '{ "CONTROLS": [ { "NAME": "level", "TYPE": "slider", "MIN": 0, "MAX": 1, "DEFAULT": 1 } ] }';

@@ -10,6 +10,7 @@
  * pairings the engine suggests. Nothing reaches the scene until Add.
  */
 
+import { useState } from "react";
 import {
   type GenerateProgress,
   type GenerateProposal,
@@ -47,6 +48,49 @@ const FIELD =
 function toCss(rgb: number[]): string {
   const [r = 0, g = 0, b = 0] = rgb.map((v) => Math.round(Math.min(1, Math.max(0, v)) * 255));
   return `rgb(${r} ${g} ${b})`;
+}
+
+/**
+ * One end of a slider's range. It holds what is typed as text: a half-typed
+ * number ("-", ".") reads as empty, and a field bound to the number would
+ * overwrite it with 0, so "-1" could not be typed. The row takes each value
+ * that parses, and leaving the field shows the value the row has.
+ */
+function RangeField({
+  id,
+  label,
+  value,
+  disabled,
+  change,
+}: {
+  id: string;
+  label: string;
+  value: number;
+  disabled: boolean;
+  change: (next: number) => void;
+}) {
+  const [text, setText] = useState(String(value));
+  return (
+    <>
+      <label className="sr-only" htmlFor={id}>
+        {label}
+      </label>
+      <input
+        id={id}
+        type="number"
+        step="any"
+        value={text}
+        disabled={disabled}
+        onChange={(event) => {
+          const typed = event.target.value;
+          setText(typed);
+          if (typed !== "" && Number.isFinite(Number(typed))) change(Number(typed));
+        }}
+        onBlur={() => setText(String(value))}
+        className={`${FIELD} w-20 disabled:opacity-50`}
+      />
+    </>
+  );
 }
 
 function Row({
@@ -97,30 +141,20 @@ function Row({
         </span>
         {slider ? (
           <span className="flex flex-wrap items-center gap-1.5 font-mono text-[11px] text-secondary">
-            <label className="sr-only" htmlFor={`${id}-min`}>
-              Lowest value of {control.name}
-            </label>
-            <input
+            <RangeField
               id={`${id}-min`}
-              type="number"
-              step="any"
+              label={`Lowest value of ${control.name}`}
               value={row.min}
               disabled={!row.keep}
-              onChange={(event) => change({ ...row, min: Number(event.target.value) })}
-              className={`${FIELD} w-20 disabled:opacity-50`}
+              change={(min) => change({ ...row, min })}
             />
             <span>to</span>
-            <label className="sr-only" htmlFor={`${id}-max`}>
-              Highest value of {control.name}
-            </label>
-            <input
+            <RangeField
               id={`${id}-max`}
-              type="number"
-              step="any"
+              label={`Highest value of ${control.name}`}
               value={row.max}
               disabled={!row.keep}
-              onChange={(event) => change({ ...row, max: Number(event.target.value) })}
-              className={`${FIELD} w-20 disabled:opacity-50`}
+              change={(max) => change({ ...row, max })}
             />
             <span>default {control.default[0]}</span>
           </span>
