@@ -10,6 +10,10 @@ const nextConfig: NextConfig = {
   // Emits `about/index.html` rather than `about.html`, so a directory URL
   // resolves without depending on the host's extension-guessing.
   trailingSlash: true,
+  // Metaplate's renderer: a native binary and a Wasm file located from its own
+  // path, neither of which Turbopack can bundle. The pages import the plate
+  // for its metadata and never render through it (lib/og/plate.tsx).
+  serverExternalPackages: ["@resvg/resvg-js", "satori"],
 };
 
 export default nextConfig;

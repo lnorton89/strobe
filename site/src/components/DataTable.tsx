@@ -11,6 +11,10 @@ import type { ReactNode } from "react";
  *
  * Either way the first column is a `<th scope="row">`, not a `<td>`: these
  * tables are lookups, and the first cell names the row.
+ *
+ * On a phone each row becomes a stack with each cell under its column's name.
+ * Scrolling sideways instead left the column that mattered, usually the last,
+ * off the screen with nothing saying it was there.
  */
 
 /** A name and what it does. */
@@ -19,9 +23,9 @@ export type Row = { name: string; description: ReactNode };
 const HEAD_CELL =
   "border-hairline text-label border-b px-5 py-3 font-mono text-[10px] font-medium tracking-[0.16em] uppercase";
 const ROW_HEADER =
-  "border-hairline text-text border-b px-5 py-3.5 text-left align-top font-mono text-[13px] font-normal whitespace-nowrap";
+  "border-hairline text-text px-5 pt-4 text-left align-top font-mono text-[13px] font-normal max-sm:block sm:border-b sm:py-3.5 sm:whitespace-nowrap";
 const CELL =
-  "border-hairline text-secondary border-b px-5 py-3.5 align-top text-[14.5px] leading-relaxed";
+  "border-hairline text-secondary px-5 pt-2 align-top text-[14.5px] leading-relaxed last:pb-4 max-sm:block sm:border-b sm:py-3.5 max-sm:before:text-label max-sm:before:mb-1 max-sm:before:block max-sm:before:font-mono max-sm:before:text-[10px] max-sm:before:tracking-[0.14em] max-sm:before:uppercase max-sm:before:content-[attr(data-label)]";
 
 type DataTableProps =
   | {
@@ -56,8 +60,8 @@ export default function DataTable(props: DataTableProps) {
       aria-label={`Table: ${headings.join(", ")}`}
       className={`rule-grid mt-8 block overflow-x-auto ${props.className ?? ""}`}
     >
-      <table className="bg-ground w-full border-collapse text-left">
-        <thead className="bg-panel">
+      <table className="bg-ground w-full border-collapse text-left max-sm:block">
+        <thead className="bg-panel max-sm:sr-only">
           <tr>
             {headings.map((heading, index) => (
               <th
@@ -70,14 +74,14 @@ export default function DataTable(props: DataTableProps) {
             ))}
           </tr>
         </thead>
-        <tbody>
+        <tbody className="max-sm:block">
           {data.map((cells, rowIndex) => (
-            <tr key={rowIndex}>
+            <tr key={rowIndex} className="border-hairline max-sm:block max-sm:not-first:border-t">
               <th scope="row" className={ROW_HEADER}>
                 {cells[0]}
               </th>
               {cells.slice(1).map((cell, cellIndex) => (
-                <td key={cellIndex} className={CELL}>
+                <td key={cellIndex} data-label={headings[cellIndex + 1]} className={CELL}>
                   {cell}
                 </td>
               ))}

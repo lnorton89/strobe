@@ -1,4 +1,4 @@
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 import { Lede } from "@/components/ui";
 
 /*
@@ -18,7 +18,7 @@ export default function PageHeader({
   /** Uppercase section name. */
   section: string;
   /** Optional mono note, right-aligned on the rule. */
-  note?: string;
+  note?: ReactNode;
   title: string;
   /** Markdown, normally the route's `@lede` block. */
   lede?: string;

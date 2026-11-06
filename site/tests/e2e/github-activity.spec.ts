@@ -14,7 +14,13 @@ import { expect, test, type Page } from "@playwright/test";
  * nothing below it moves when data lands — nor when the reader filters it.
  */
 
-const API = "**://api.github.com/**";
+const API = "**://api.github.com/**/commits**";
+
+// Every page also asks for the release (components/Release.tsx), which is
+// tests/e2e/release.spec.ts's subject. Here it stays off the network.
+test.beforeEach(async ({ page }) => {
+  await page.route("**://api.github.com/**/releases/**", (route) => route.abort("failed"));
+});
 
 /*
  * Anything that would betray a half-finished widget.

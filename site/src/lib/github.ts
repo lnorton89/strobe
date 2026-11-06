@@ -1,3 +1,5 @@
+import { REPO } from "./site";
+
 /*
  * The repository's recent commits, read from GitHub's public REST API.
  *
@@ -25,7 +27,7 @@
  * failure paths without a network.
  */
 
-export const REPO = "lnorton89/strobe";
+export { REPO };
 
 /**
  * How many commits the live refresh asks GitHub for.

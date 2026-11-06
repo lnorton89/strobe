@@ -1,80 +1,126 @@
 <!-- @tagline -->
 
-Audio-reactive shaders for screens, projectors and LED walls.
+A VJ engine for audio-reactive GLSL scenes.
 
 <!-- @hero-why -->
 
-Strobe is an open-source VJ engine in Rust. It plays **Synesthesia scenes as
-they are** — GLSL, controls and JavaScript — imports **Shadertoy** shaders,
-and runs long shows from playlists. It is built to stay up on old laptops:
-the floor is **OpenGL 3.3**, roughly a 2012 Intel HD 4000.
+Strobe plays Synesthesia scenes unchanged, including their controls and
+JavaScript, imports Shadertoy shaders, and runs shows from playlists. It is
+written in Rust and draws through OpenGL 3.3, with ANGLE on Direct3D 11 for
+machines whose GL driver fails.
 
 <!-- @hero-proof -->
 
-The control window at 1440x900, playing Script Orbits: the live preview, the
-scene's controls in the side panel, and the transport, macros and BLACKOUT
-along the bottom.
-
-<!-- @features-note -->
-
-From the README, in practical terms
+The control window at 1440x900, playing Electric Bloom: the scene library, the
+live preview and its controls, and the transport, macros and BLACKOUT along the
+bottom.
 
 <!-- @features -->
 
-### Plays Synesthesia scenes
+### Scenes
 
-Reads `main.glsl`, `scene.json` and `script.js` unchanged: multipass, the SSF
-function library, every control type, images, media, and the JavaScript API.
+Reads a `.synScene` folder as it is: `main.glsl`, `scene.json` and `script.js`.
+That covers multipass, the SSF function library, every control type, images,
+cube maps, media, and the JavaScript API under QuickJS. Of 65 real Synesthesia
+scenes run through the test harness on NVIDIA, 63 play with their scripts; the
+other two have bugs of their own.
 
-### Imports Shadertoy
+### Shadertoy import
 
-A "Send to Strobe" userscript posts a shader to the app. Buffers become
-passes, the audio channel becomes your live sound, and the licence is kept.
+A "Send to Strobe" userscript posts a shader from its page to the app, which
+converts it into an ordinary scene folder. Buffers A to D become passes, the
+audio channel takes your live sound, and the source, author and licence are
+recorded. The converter is tested with fixtures; a live import from the site has
+not been verified yet.
 
-### Generates controls
+### Generated controls
 
-Finds the literals that shape a scene and turns them into controls, keeping
-only those that measurably change the picture. The original is never touched.
+For a scene with no controls, Strobe finds the literals that shape it (colours,
+scales, speeds, loop counts), renders with each one changed, and keeps those
+that measurably change the picture. It runs in a worker process while the show
+plays, and saving backs up the files it replaces.
 
-### Runs long shows
+### Playlists
 
-Playlists in hand-writable TOML with inherited settings. Every scene is
-compiled before it plays, the next one warms up off screen, and a crash resumes.
+A show is TOML you can write by hand. A cue that names only a scene inherits its
+duration, advance and transition from its section and the playlist, and a seeded
+generator can build a section from scene tags. Every scene is compiled before
+the show starts, the next one warms up off screen, and a show resumes after a
+crash.
 
-### Takes show control
+### Show control
 
-MIDI and OSC in with learn, soft takeover and curves; OSC feedback out;
-Performance Macros, presets and eight fav slots; rebindable keys.
+MIDI and OSC in, with learn, soft takeover and curves, and OSC feedback out for
+motorised faders and TouchOSC. Macros, presets, eight fav slots and rebindable
+keys. The transport and BLACKOUT stay in one place in every view. MIDI has been
+tested in software and not yet with hardware.
 
-### Remote from a phone
+### LAN remote
 
-Pair a phone or another Strobe desktop over the LAN, with scoped pairing and
-revocation, and an unattended venue mode for show machines.
+Opt-in, for trusted networks. A phone opens the address Settings shows, gives
+itself a name, and the laptop approves it. Another Strobe desktop can ask the same
+way, and venue mode uses a trust file so a laptop reconnects to a show machine by
+itself.
 
-### A performer-first UI
+<!-- @performance -->
 
-The live preview with the transport underneath, a command palette, a scene
-editor that keeps the last good scene playing, and tag search with thumbnails.
+Strobe's floor is OpenGL 3.3 core, the level of a 2012 Intel HD 4000. The slowest
+GPUs it has been measured on are an Intel UHD 620 and an AMD Vega 3; no HD 4000
+has been tested yet.
 
-### Stays up on bad hardware
+<!-- @performance-items -->
 
-Adaptive resolution, an ANGLE fallback when the GL driver fails, context-loss
-recovery, runaway scripts stopped within a frame budget, and crash minidumps.
+### The frame loop
 
-<!-- @scenes-note -->
+One thread owns the GL context. Audio, MIDI, OSC and the remote run on workers
+that hand values over through bounded queues the loop never waits on. Per-frame
+paths do not allocate or query the driver, and a render test fails if a state
+query runs while a scene plays.
 
-Rendered from scenes/ at build time
+### Adaptive resolution
+
+The loop reads a GPU timer from an earlier frame and lowers the render scale when
+the average goes over budget, or when about 4% of frames miss their refresh for
+four seconds. The second rule exists because a mean under budget is not a smooth
+show: on a Vega 3, scenes at 12.4 to 13.8 ms still missed about one refresh in
+eleven.
+
+### ANGLE fallback
+
+If native GL 3.3 will not start, Strobe opens OpenGL ES 3.0 through ANGLE on
+Direct3D 11, the path Chrome uses. Everything above the context is the same code,
+and on the T480 ANGLE's frame times were within 5 to 10% of native.
+
+### When something fails
+
+A lost GL context is rebuilt and the show carries on. A script gets 4 ms a frame,
+so a `while(true){}` is interrupted and the scene keeps rendering. A crash leaves
+a report and a minidump that `cargo xtask symbolicate` turns into a stack with
+file and line.
+
+<!-- @performance-source -->
+
+Mean milliseconds per frame, timed with `glFinish` over 60 frames, on a ThinkPad
+T480 (Intel UHD 620) through native OpenGL. The tick is the 16.7 ms budget of a
+60 Hz refresh. Volume Clouds is the stress scene at the top of the load ladder and
+does not run at this GPU's frame rate at any scale.
 
 <!-- @scenes -->
 
-Strobe ships with an original scene library spanning five tiers of GPU load,
-from a drifting gradient to raymarched clouds, plus a scripted physics scene
-and a set of feedback-driven paint studies. Every thumbnail below is a real
-frame from the scene it names.
+The library is original work. Ten scenes span five tiers of GPU load, from a
+drifting gradient to raymarched clouds, and they are what `strobe-bench` times on
+every machine. The rest are a scripted physics scene, a fictional circuit board
+and five audio-reactive show pieces. Open any of them in the browser sandbox,
+which runs Strobe's own player as WebAssembly.
 
 <!-- @compare-note -->
 
-Where the two differ
+From the README
+
+<!-- @compare-disclaimer -->
+
+Strobe is an independent project. It is not made by, endorsed by or affiliated
+with Synesthesia's makers, and it ships none of their scenes.
 
 <!-- @status-title -->
 
@@ -82,10 +128,16 @@ It is for testing, not yet for production.
 
 <!-- @status -->
 
-The engine, the performer UI, playlists, show control, Shadertoy import and the
-LAN remote are built and tested. The current release rebuilt the app's UI,
-added approve-only pairing and venue mode for controlling a show machine, and
-lets you choose ANGLE's backend when a GL driver misbehaves. Windows is the
-target and has been checked on real Intel, NVIDIA and AMD machines; Linux
-builds and runs on X11 and Wayland; macOS does not run yet.
-What is verified, and where, is tracked in the compatibility matrix.
+Windows is the target. It has run on a ThinkPad T480 (Intel UHD 620), desktops
+with a GTX 1080 Ti and an RX 580, and a venue mini PC (Ryzen 3 3200U, Vega 3)
+driving a projector. Linux builds and runs on X11 and Wayland, so far on Mesa's
+software renderer. macOS does not run yet.
+
+<!-- @status-unverified -->
+
+Not verified yet: MIDI hardware, a live Shadertoy import, phones, and an HD 4000.
+
+<!-- @licence -->
+
+Source-available: MIT with the Commons Clause and an added permission. You may
+use, change and share Strobe and run it for pay. You may not sell Strobe itself.

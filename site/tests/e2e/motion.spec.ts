@@ -40,7 +40,7 @@ test("revealed content ends fully visible", async ({ page }) => {
   // The reveal wraps the card, so opacity is asserted on the wrapper. It is
   // brought into view explicitly: a scroll-through can pass a mid-page card
   // between two observer callbacks, and that race is the test's, not a reader's.
-  const card = page.locator(".reveal").filter({ hasText: "Plays Synesthesia scenes" }).first();
+  const card = page.locator(".reveal").filter({ hasText: "Shadertoy import" }).first();
   await card.scrollIntoViewIfNeeded();
   await expect(card).toBeVisible();
   await expect(card).toHaveClass(/is-in/);
@@ -54,7 +54,7 @@ test("content below the fold is opaque once scrolled to", async ({ page }) => {
   await scrollThroughPage(page);
   await settleAnimations(page);
 
-  const closing = page.locator(".reveal").filter({ hasText: /is for testing, not production/i }).first();
+  const closing = page.locator(".reveal").filter({ hasText: /is for testing, not yet for production/i }).first();
   await expect(closing).toBeVisible();
   await expect(closing).toHaveCSS("opacity", "1");
 });
@@ -65,7 +65,7 @@ test("reduced motion renders the final state with no animation at all", async ({
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");
 
-  const closing = page.locator(".reveal").filter({ hasText: /is for testing, not production/i }).first();
+  const closing = page.locator(".reveal").filter({ hasText: /is for testing, not yet for production/i }).first();
   // Not merely faster — present immediately, without being scrolled to.
   await expect(closing).toHaveCSS("opacity", "1");
 });

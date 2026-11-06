@@ -3,17 +3,8 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 /*
- * Guards the deploy configuration.
- *
- * Next's `opengraph-image` convention writes an extension-less file, so the
- * host has nothing to infer a content type from and would serve it as a
- * generic download — which every social scraper rejects. netlify.toml restores
- * the type.
- *
- * This cannot be checked end-to-end: the Playwright run is served by `serve`,
- * which knows nothing about netlify.toml. The e2e suite therefore asserts the
- * bytes are a valid PNG, and this asserts the header rules that make the
- * deployed site serve them as one.
+ * Guards the deploy configuration, which the Playwright run cannot reach: it is
+ * served by `serve`, which knows nothing about netlify.toml.
  */
 
 const CONFIG = readFileSync(path.join(process.cwd(), "netlify.toml"), "utf8");
@@ -55,18 +46,6 @@ describe("netlify.toml", () => {
     const environment = CONFIG.split("[build.environment]")[1]?.split("\n[")[0];
     expect(environment, "no [build.environment] section").toBeDefined();
     expect(environment).toMatch(/NETLIFY_NEXT_PLUGIN_SKIP\s*=\s*"true"/);
-  });
-
-  it("serves the root social image as a PNG", () => {
-    const rule = headerValues("/og-image");
-    expect(rule, "no [[headers]] rule for /og-image").toBeDefined();
-    expect(rule).toMatch(/Content-Type\s*=\s*"image\/png"/);
-  });
-
-  it("serves every route's social image as a PNG", () => {
-    const rule = headerValues("/*/og-image");
-    expect(rule, "no [[headers]] rule for /*/og-image").toBeDefined();
-    expect(rule).toMatch(/Content-Type\s*=\s*"image\/png"/);
   });
 
   it("sends the security headers a static site should", () => {

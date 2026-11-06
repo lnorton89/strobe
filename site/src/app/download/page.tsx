@@ -6,6 +6,7 @@ import PageHeader from "@/components/PageHeader";
 import Reveal from "@/components/Reveal";
 import SectionHeading from "@/components/SectionHeading";
 import ShellBlock from "@/components/ShellBlock";
+import { ReleaseName, WindowsDownload } from "@/components/Release";
 import { Action, ArrowLink, Callout, MarkedList, Prose } from "@/components/ui";
 import {
   CompatibilityIcon,
@@ -13,27 +14,15 @@ import {
   GuideIcon,
   ShellIcon,
 } from "@/components/brand/icons";
-import { ogImageMetadata } from "@/lib/og-image";
+import { pageMetadata } from "@/lib/og/metadata";
 import { readPageContent } from "@/lib/page-content";
-import { latestRelease, releaseLabel } from "@/lib/release";
 import { DEFAULT_BRANCH, REPO_URL } from "@/lib/site";
 
-/** Social image copy, rendered by ./og-image/route.tsx. */
-export const og = {
-  eyebrow: "Download",
-  title: "Unzip it and run it.",
-  description:
-    "A Windows release with no installer and an ANGLE fallback beside it; Linux from source with a package list and a Nix flake.",
-  alt: "Strobe social card — download and build.",
-};
-
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata("/download/", {
   title: "Download",
   description:
     "Download Strobe for Windows, or build it on Linux from source with apt, dnf, pacman or the Nix flake. What the machine needs, and where Strobe keeps its settings.",
-  alternates: { canonical: "/download/" },
-  ...ogImageMetadata("/download/", og),
-};
+});
 
 /** One part of the page, with its own section rule. */
 function Step({
@@ -67,13 +56,17 @@ function SplitStep({ children }: { children: ReactNode }) {
 const README_LINUX = `${REPO_URL}/blob/${DEFAULT_BRANCH}/README.md#linux`;
 
 export default async function DownloadPage() {
-  const [content, release] = await Promise.all([readPageContent("download"), latestRelease()]);
+  const content = await readPageContent("download");
 
   return (
     <article className="pb-28">
       <PageHeader
         section="Download"
-        note={`${releaseLabel(release)} · for testing, not production`}
+        note={
+          <>
+            <ReleaseName /> · for testing, not yet for production
+          </>
+        }
         icon={DownloadIcon}
         title="Unzip it and run it."
         lede={content.block("lede")}
@@ -83,15 +76,11 @@ export default async function DownloadPage() {
         <Step title="Windows" note="x86_64 · no installer" icon={DownloadIcon}>
           <SplitStep>
             <div>
-              <Prose>{content.block("windows")}</Prose>
-              <div className="mt-8 flex flex-wrap gap-4">
-                <Action href={release.url} variant="primary" icon={DownloadIcon} external>
-                  GitHub Releases
-                </Action>
-                <Action href="/guide/" icon={GuideIcon}>
-                  First run
-                </Action>
-              </div>
+              <WindowsDownload />
+              <Prose className="mt-8">{content.block("windows")}</Prose>
+              <ArrowLink href="/guide/#first-run" className="mt-6">
+                First run, in the user guide
+              </ArrowLink>
             </div>
             <Callout className="sm:p-9">
               <h3 className="text-text text-[18px] font-semibold tracking-[-0.01em]">
@@ -123,8 +112,8 @@ export default async function DownloadPage() {
               title="Debian and Ubuntu"
               lines={[
                 "sudo apt-get install -y build-essential pkg-config libasound2-dev",
-                "cargo build --release -p strobe-app     # about 10 minutes on four cores",
-                "target/release/strobe --diagnose        # GPU, driver and audio report",
+                "cargo build --release -p strobe-app  # about 10 minutes on 4 cores",
+                "target/release/strobe --diagnose     # GPU, driver and audio",
               ]}
             />
           </SplitStep>
@@ -134,9 +123,9 @@ export default async function DownloadPage() {
               <ShellBlock
                 title="Nix"
                 lines={[
-                  "nix develop                  # toolchain, ALSA, and the run-time libraries",
+                  "nix develop  # toolchain, ALSA and run-time libraries",
                   "cargo run --release -p strobe-app",
-                  "nix run                      # or build the package and start it",
+                  "nix run      # or build the package and start it",
                 ]}
               />
             </SplitStep>
@@ -149,7 +138,7 @@ export default async function DownloadPage() {
             <ShellBlock
               title="Build and run"
               lines={[
-                "git clone https://github.com/lnorton89/strobe",
+                `git clone ${REPO_URL}`,
                 "cd strobe",
                 "cargo run --release -p strobe-app",
                 "cargo run --release -p strobe-app -- --playlist playlists/example.toml",

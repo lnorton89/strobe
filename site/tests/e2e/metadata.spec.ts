@@ -5,28 +5,55 @@ import { ROUTES } from "./routes";
  * Deployment-shape checks.
  *
  * The site ships as a static export, so whatever the build wrote is exactly
- * what gets served. The social images are route handlers at /og-image rather
- * than Next's `opengraph-image` convention: the handler is written once and
- * reused, and the URL is one this code chooses, so the header rule that gives
- * it an image content type points at a path that will not move.
+ * what gets served. The social cards are files Metaplate rendered into public/
+ * (D557), named `.jpg` so any static host serves them with the right type.
  */
 
-const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+/** A baseline JPEG's dimensions, from its start-of-frame marker. */
+function jpegSize(bytes: Buffer): { width: number; height: number } | undefined {
+  for (let at = 2; at + 9 < bytes.length; ) {
+    const marker = bytes[at + 1];
+    if (marker >= 0xc0 && marker <= 0xc2) {
+      return { height: bytes.readUInt16BE(at + 5), width: bytes.readUInt16BE(at + 7) };
+    }
+    at += 2 + bytes.readUInt16BE(at + 2);
+  }
+  return undefined;
+}
 
 for (const route of ROUTES) {
-  test(`${route.name} social image is a real 1200x630 PNG`, async ({ request }) => {
+  test(`${route.name} social image is a real 1200x630 JPEG`, async ({ request }) => {
     const response = await request.get(route.og);
     expect(response.status()).toBe(200);
+    expect(response.headers()["content-type"]).toContain("image/jpeg");
 
-    // The content type is asserted in tests/unit/netlify-config.test.ts, not
-    // here: a route handler emits an extension-less file and the local `serve`
-    // has no netlify.toml to read, so only the deployed host sets it.
     const body = await response.body();
-    expect(body.subarray(0, 8)).toEqual(PNG_SIGNATURE);
-    expect(body.readUInt32BE(16)).toBe(1200);
-    expect(body.readUInt32BE(20)).toBe(630);
+    expect(body.subarray(0, 2)).toEqual(Buffer.from([0xff, 0xd8]));
+    expect(jpegSize(body)).toEqual({ width: 1200, height: 630 });
   });
 }
+
+test("every page keeps the layout's Open Graph fields", async ({ page }) => {
+  for (const route of ROUTES) {
+    await page.goto(route.path);
+    await expect(page.locator('meta[property="og:site_name"]'), route.name).toHaveAttribute(
+      "content",
+      "Strobe",
+    );
+    await expect(page.locator('meta[property="og:type"]'), route.name).toHaveAttribute(
+      "content",
+      "website",
+    );
+    await expect(page.locator('meta[property="og:url"]'), route.name).toHaveAttribute(
+      "content",
+      new RegExp(`${route.path}$`),
+    );
+    await expect(page.locator('meta[property="og:image:alt"]'), route.name).toHaveAttribute(
+      "content",
+      /Strobe/,
+    );
+  }
+});
 
 test("every page declares a social image with its dimensions", async ({ page }) => {
   for (const route of ROUTES) {

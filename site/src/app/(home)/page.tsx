@@ -1,55 +1,27 @@
 import Wordmark from "@/components/brand/Wordmark";
 import DataTable from "@/components/DataTable";
+import FrameTimes from "@/components/FrameTimes";
 import { InlineMarkdown } from "@/components/Markdown";
 import { Eyebrow } from "@/components/PageHeader";
 import Reveal from "@/components/Reveal";
 import SceneCard from "@/components/SceneCard";
 import Screenshot from "@/components/Screenshot";
 import SectionHeading from "@/components/SectionHeading";
-import { Action, ArrowLink } from "@/components/ui";
+import { Action, ArrowLink } from "@/components/Action";
+import { CurrentReleaseSentence, ReleaseLink } from "@/components/Release";
 import {
-  AudioIcon,
   CompatibilityIcon,
-  ControllerIcon,
   DownloadIcon,
   GitHubIcon,
-  GuideIcon,
-  ImportIcon,
   PerformIcon,
-  PlaylistIcon,
-  RemoteIcon,
+  PlayIcon,
   ResilienceIcon,
   ScenesIcon,
 } from "@/components/brand/icons";
-import { ICON } from "@/lib/constants";
+import { FRAME_BUDGET_MS, readSweep } from "@/lib/benchmarks";
 import { readPageContent } from "@/lib/page-content";
 import { readScenes } from "@/lib/scenes";
-import { latestRelease, releaseLabel } from "@/lib/release";
-import { BADGES, RELEASE_STAGE, REPO_URL } from "@/lib/site";
-
-export const og = {
-  eyebrow: "Open-source VJ engine",
-  title: "Audio-reactive shaders for screens, projectors and LED walls.",
-  description:
-    "Plays Synesthesia scenes as they are, imports Shadertoy shaders and runs long playlists — built to stay up on old laptops.",
-  alt: "Strobe — audio-reactive shaders for screens, projectors and LED walls.",
-};
-
-/**
- * The icon each feature is drawn with, bound to its `###` heading in
- * content.md by slug. Rewording a heading without updating this fails the
- * build, naming the slug.
- */
-const FEATURE_ICONS = {
-  "plays-synesthesia-scenes": AudioIcon,
-  "imports-shadertoy": ImportIcon,
-  "generates-controls": ControllerIcon,
-  "runs-long-shows": PlaylistIcon,
-  "takes-show-control": ControllerIcon,
-  "remote-from-a-phone": RemoteIcon,
-  "a-performer-first-ui": PerformIcon,
-  "stays-up-on-bad-hardware": ResilienceIcon,
-} as const;
+import { BADGES, DEFAULT_BRANCH, RELEASE_STAGE, REPO_URL } from "@/lib/site";
 
 /** README.md's comparison table, row for row. */
 const COMPARISON = [
@@ -75,66 +47,65 @@ const COMPARISON = [
 /** How many scenes the home page previews; the rest are one click away. */
 const SCENE_PREVIEW = 8;
 
+/** Prose under a heading in one of the plain grids. */
+const CELL_BODY =
+  "text-secondary text-[15px] leading-[1.65] text-pretty [&_code]:font-mono [&_code]:text-[0.9em]";
+
 export default async function Home() {
-  const [content, scenes, release] = await Promise.all([
-    readPageContent("(home)"),
-    readScenes(),
-    latestRelease(),
-  ]);
+  const [content, scenes] = await Promise.all([readPageContent("(home)"), readScenes()]);
+  const sweep = readSweep();
+  const fit = sweep.scenes.filter((scene) => scene.full <= FRAME_BUDGET_MS).length;
+  const fitHalf = sweep.scenes.filter((scene) => scene.half <= FRAME_BUDGET_MS).length;
 
   return (
     <>
       <section className="hero-field relative overflow-hidden">
-        <div className="mx-auto max-w-350 px-6 pt-16 pb-20 sm:px-10 sm:pt-24 sm:pb-28">
-          <div className="grid gap-14 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-center lg:gap-16">
-            <div className="flex flex-col gap-7">
-              <Eyebrow>Open-source VJ engine</Eyebrow>
+        <div className="mx-auto max-w-350 px-6 pt-14 pb-16 sm:px-10 sm:pt-20 sm:pb-24">
+          <div className="grid gap-12 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-center lg:gap-16">
+            <div className="flex flex-col gap-6">
               <h1>
-                <Wordmark size="clamp(40px, 5.4vw, 72px)" withMark withDescriptor />
+                <Wordmark size="clamp(34px, 3.8vw, 52px)" withMark withDescriptor />
               </h1>
-              <p className="text-text font-display text-[28px] leading-[1.12] font-semibold tracking-[-0.02em] text-balance sm:text-[38px]">
+              <p className="text-text font-display text-[30px] leading-[1.12] font-semibold tracking-[-0.02em] text-balance sm:text-[42px]">
                 {content.block("tagline")}
               </p>
-              <div className="text-secondary text-[17px] leading-[1.65] text-pretty [&_code]:font-mono [&_strong]:text-text">
+              <div className="text-secondary text-[17px] leading-[1.65] text-pretty">
                 <InlineMarkdown>{content.block("hero-why")}</InlineMarkdown>
-              </div>
-              <div className="rule-grid flex w-fit flex-wrap">
-                {BADGES.map((badge) => (
-                  <span
-                    key={badge}
-                    className="bg-ground text-secondary grow px-4 py-2.5 text-center font-mono text-xs"
-                  >
-                    {badge}
-                  </span>
-                ))}
-                <a
-                  href={release.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="bg-accent text-on-accent grow px-4 py-2.5 text-center font-mono text-xs font-medium"
-                >
-                  {releaseLabel(release)} · {RELEASE_STAGE}
-                </a>
               </div>
               <div className="mt-1 flex flex-wrap items-center gap-4">
                 <Action href="/download/" variant="primary" icon={DownloadIcon}>
                   Download
                 </Action>
-                <Action href="/guide/" icon={GuideIcon}>
-                  User guide
-                </Action>
-                <Action href={REPO_URL} variant="ghost" icon={GitHubIcon} external>
-                  Source
+                <Action href="/play/" icon={PlayIcon}>
+                  Try it in your browser
                 </Action>
               </div>
+              <p className="text-label flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs leading-relaxed">
+                <ReleaseLink
+                  suffix={RELEASE_STAGE}
+                  className="text-accent-text hover:text-text underline decoration-1 underline-offset-[3px]"
+                />
+                {BADGES.map((badge) => (
+                  <span key={badge}>{badge}</span>
+                ))}
+                <a
+                  href={REPO_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-text inline-flex items-center gap-1.5"
+                >
+                  <GitHubIcon size={13} />
+                  Source
+                </a>
+              </p>
             </div>
             <div className="min-w-0">
               <Screenshot
                 src="/generated/docs-images/app-control.png"
-                alt="Strobe's control window playing Script Orbits: the live preview at the centre, the scene's controls in the side panel, and the transport, macros and BLACKOUT along the bottom."
+                alt="Strobe's control window playing Electric Bloom: the scene library in the middle, the live preview and the scene's controls in the side panel, and the transport, macros and BLACKOUT along the bottom."
                 width={1440}
                 height={900}
-                title="Perform"
+                title="Library"
                 priority
               />
               <p className="text-secondary mt-4 text-[13px] leading-[1.65]">
@@ -146,47 +117,81 @@ export default async function Home() {
       </section>
 
       <section className="border-hairline bg-panel border-y">
-        <div className="mx-auto max-w-350 px-6 py-24 sm:px-10">
-          <SectionHeading
-            title="What it does"
-            note={content.block("features-note")}
-            icon={PerformIcon}
-          />
-          <div className="rule-grid mt-11 grid sm:grid-cols-2 xl:grid-cols-4">
-            {content.items("features").map(({ slug, title, body }, index) => {
-              const Icon = FEATURE_ICONS[slug as keyof typeof FEATURE_ICONS];
-              if (!Icon) throw new Error(`No icon bound for feature "${slug}"`);
-              return (
-                <Reveal
-                  key={slug}
-                  delay={Math.min(index * 0.03, 0.15)}
-                  className="bg-ground hover:bg-panel-raised panel-hover flex flex-col gap-4 p-7"
-                >
-                  <Icon size={ICON.card} className="text-text" />
-                  <h3 className="text-text text-[19px] leading-snug font-semibold tracking-[-0.015em]">
-                    {title}
-                  </h3>
-                  <div className="text-secondary text-[14.5px] leading-[1.65] text-pretty [&_code]:font-mono [&_code]:text-[0.9em]">
-                    <InlineMarkdown>{body}</InlineMarkdown>
-                  </div>
-                </Reveal>
-              );
-            })}
+        <div className="mx-auto max-w-350 px-6 py-20 sm:px-10 sm:py-24">
+          <SectionHeading title="What it does" icon={PerformIcon} />
+          <div className="rule-grid mt-10 grid md:grid-cols-2 xl:grid-cols-3">
+            {content.items("features").map(({ slug, title, body }, index) => (
+              <Reveal
+                key={slug}
+                delay={Math.min(index * 0.03, 0.15)}
+                className="bg-ground flex flex-col gap-3 p-7"
+              >
+                <h3 className="text-text text-[19px] leading-snug font-semibold tracking-[-0.015em]">
+                  {title}
+                </h3>
+                <div className={CELL_BODY}>
+                  <InlineMarkdown>{body}</InlineMarkdown>
+                </div>
+              </Reveal>
+            ))}
           </div>
         </div>
       </section>
 
       <section className="border-hairline border-b">
-        <div className="mx-auto max-w-350 px-6 py-24 sm:px-10">
-          <SectionHeading
-            title="The scene library"
-            note={content.block("scenes-note")}
-            icon={ScenesIcon}
-          />
+        <div className="mx-auto max-w-350 px-6 py-20 sm:px-10 sm:py-24">
+          <SectionHeading title="Performance and failure" icon={ResilienceIcon} />
+          <div className="mt-10 grid gap-12 *:min-w-0 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] lg:gap-16">
+            <div>
+              <p className="text-bright max-w-[62ch] text-[18px] leading-[1.6] text-pretty">
+                {content.block("performance")}
+              </p>
+              <div className="mt-10 flex flex-col gap-8">
+                {content.items("performance-items").map(({ slug, title, body }) => (
+                  <div key={slug}>
+                    <h3 className="text-text text-[17px] leading-snug font-semibold tracking-[-0.01em]">
+                      {title}
+                    </h3>
+                    <div className={`${CELL_BODY} mt-2 max-w-[62ch]`}>
+                      <InlineMarkdown>{body}</InlineMarkdown>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <Reveal>
+              <h3 className="text-text text-[17px] leading-snug font-semibold tracking-[-0.01em]">
+                {fit} of {sweep.scenes.length} library scenes fit the frame budget at 720p, and{" "}
+                {fitHalf} at half scale
+              </h3>
+              <div className="mt-4">
+                <FrameTimes
+                  sweep={sweep}
+                  titles={new Map(scenes.map((scene) => [scene.slug, scene.title]))}
+                />
+              </div>
+              <div className="text-secondary mt-4 text-[13px] leading-[1.65] [&_code]:font-mono [&_code]:text-[0.9em]">
+                <InlineMarkdown>{content.block("performance-source")}</InlineMarkdown>
+              </div>
+              <ArrowLink
+                href={`${REPO_URL}/blob/${DEFAULT_BRANCH}/docs/BENCHMARKS.md`}
+                external
+                className="mt-4"
+              >
+                Every machine, in BENCHMARKS.md
+              </ArrowLink>
+            </Reveal>
+          </div>
+        </div>
+      </section>
+
+      <section className="border-hairline border-b">
+        <div className="mx-auto max-w-350 px-6 py-20 sm:px-10 sm:py-24">
+          <SectionHeading title="The scene library" icon={ScenesIcon} />
           <Reveal className="mt-9 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-            <p className="text-secondary max-w-[72ch] text-[16.5px] leading-[1.7] text-pretty">
-              {content.block("scenes")}
-            </p>
+            <div className="text-secondary max-w-[72ch] text-[16.5px] leading-[1.7] text-pretty [&_code]:font-mono [&_code]:text-[0.9em]">
+              <InlineMarkdown>{content.block("scenes")}</InlineMarkdown>
+            </div>
             <ArrowLink href="/scenes/" className="flex-none">
               All {scenes.length} scenes
             </ArrowLink>
@@ -199,7 +204,7 @@ export default async function Home() {
         </div>
       </section>
 
-      <section className="mx-auto max-w-350 px-6 py-24 sm:px-10">
+      <section className="mx-auto max-w-350 px-6 py-20 sm:px-10 sm:py-24">
         <Reveal>
           <SectionHeading title="Strobe and Synesthesia" note={content.block("compare-note")} />
           <DataTable
@@ -207,22 +212,31 @@ export default async function Home() {
             data={COMPARISON}
             className="mt-9"
           />
+          <p className="text-label mt-4 text-[13px] leading-[1.65]">
+            {content.block("compare-disclaimer")}
+          </p>
         </Reveal>
       </section>
 
       <section className="border-hairline bg-panel border-t">
-        <Reveal className="mx-auto flex max-w-350 flex-col gap-6 px-6 py-20 sm:px-10 lg:flex-row lg:items-center lg:justify-between">
+        <Reveal className="mx-auto flex max-w-350 flex-col gap-8 px-6 py-20 sm:px-10 lg:flex-row lg:items-center lg:justify-between lg:gap-16">
           <div>
             <Eyebrow>Project status</Eyebrow>
-            <h2 className="text-text mt-4 text-[28px] font-semibold tracking-tight">
-              {release.tag ? `${release.tag} is the current release. ` : ""}
+            <h2 className="text-text mt-4 text-[28px] leading-tight font-semibold tracking-tight">
+              <CurrentReleaseSentence />
               {content.block("status-title")}
             </h2>
             <p className="text-secondary mt-3 max-w-[70ch] leading-[1.7]">
               {content.block("status")}
             </p>
+            <p className="text-bright mt-3 max-w-[70ch] leading-[1.7]">
+              {content.block("status-unverified")}
+            </p>
+            <p className="text-label mt-6 max-w-[70ch] text-[13px] leading-[1.65]">
+              {content.block("licence")}
+            </p>
           </div>
-          <div className="flex flex-wrap gap-4">
+          <div className="flex flex-none flex-wrap gap-4">
             <Action href="/compatibility/" variant="primary" icon={CompatibilityIcon}>
               Compatibility
             </Action>

@@ -59,3 +59,8 @@ yarn-error.log*
 
 # Copied from the repository by scripts/sync-assets.mjs before every build.
 /public/generated/
+
+# The social cards, and the manifest of what was rendered (scripts/render-cards.ts).
+/public/og-image.jpg
+/public/*/og-image.jpg
+/.og-manifest.json

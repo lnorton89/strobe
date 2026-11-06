@@ -9,8 +9,8 @@ import { CONTAINER } from "@/lib/constants";
  *
  * The header and the lede are the site's; the body is the document, read at
  * build time by lib/repo-docs.ts, with a contents rail beside it. The source
- * note says which file the page is, so a reader who wants to propose a change
- * knows where to make it.
+ * note comes after the document, for a reader who wants to propose a change:
+ * above it, a build detail was the first thing every reader had to read past.
  */
 export default function RepoDocPage({
   section,
@@ -38,12 +38,12 @@ export default function RepoDocPage({
   return (
     <article className="pb-28">
       <PageHeader section={section} note={note} icon={icon} title={title} lede={lede} />
-      <div className={`${CONTAINER} pt-10`}>
-        <SourceNote>{source}</SourceNote>
-      </div>
       {children}
-      <div className="pt-16">
+      <div className="pt-14">
         <DocBody markdown={markdown} tocLabel={tocLabel} />
+      </div>
+      <div className={`${CONTAINER} pt-16`}>
+        <SourceNote>{source}</SourceNote>
       </div>
     </article>
   );

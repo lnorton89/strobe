@@ -1,9 +1,9 @@
 {
   "name": "strobe-site",
-  "version": "0.1.0",
+  "version": "0.0.0",
   "private": true,
-  "description": "Website for Strobe, an open-source, audio-reactive shader visualizer and VJ engine.",
-  "homepage": "https://github.com/lnorton89/strobe/tree/main/site",
+  "description": "Website for Strobe, a source-available VJ engine for audio-reactive GLSL scenes.",
+  "homepage": "https://github.com/lnorton89/strobe/tree/master/site",
   "repository": {
     "type": "git",
     "url": "https://github.com/lnorton89/strobe.git",
@@ -12,16 +12,17 @@
   "bugs": {
     "url": "https://github.com/lnorton89/strobe/issues"
   },
-  "license": "MIT AND Apache-2.0",
+  "license": "SEE LICENSE IN ../LICENSE",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "assets": "node scripts/sync-assets.mjs",
+    "assets": "node scripts/sync-assets.mjs && tsx scripts/sync-release.mts && tsx scripts/render-cards.mts",
     "predev": "npm run assets && npm run engine",
     "dev": "next dev",
     "prebuild": "npm run assets && npm run engine",
     "build": "next build",
+    "postbuild": "node scripts/flatten-segments.mjs",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
@@ -29,7 +30,7 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:e2e:update": "playwright test --update-snapshots",
-    "test:play": "playwright test tests/e2e/play",
+    "test:play": "playwright test tests/e2e/play --workers=1",
     "browser": "playwright install chromium --only-shell",
     "test:links": "start-server-and-test \"npx serve out -l 4173\" http://localhost:4173 \"linkinator http://localhost:4173 --recurse --silent --status-code 429:warn\"",
     "test:lighthouse": "lhci autorun",
@@ -54,6 +55,7 @@
     "@lezer/highlight": "^1.2.5",
     "codemirror": "^6.0.2",
     "github-slugger": "^2.0.0",
+    "metaplate": "0.8.2",
     "motion": "^13.1.0",
     "next": "16.4.2",
     "react": "19.2.8",

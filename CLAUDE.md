@@ -56,8 +56,10 @@ so `cargo xtask ci` runs the same commands: the lanes `fmt`, `lint`
 wasm32, rustdoc and the Windows cross-check), `test`, `deny`, `generated`
 (changelog, brand, credits, decisions), `render` (Linux: Xvfb, the scene
 library and the corpus gate, D534), `build` (Windows: the optimised
-binaries) and `package` (Windows: the release zip, unpacked and checked,
-D537), with each host's policy in `crates/xtask/src/ci.rs` (D533).
+binaries), `package` (Windows: the release zip, unpacked and checked,
+D537) and `site` (the website: lint, types, unit tests, the static build
+with its wasm engine and the `/play` smoke test, D552), with each host's
+policy in `crates/xtask/src/ci.rs` (D533).
 `conventions` runs the conventions tests alone, which is all a docs-only
 pull request runs (D531). A
 step that does not apply here says `n/a`; one whose tool is missing says

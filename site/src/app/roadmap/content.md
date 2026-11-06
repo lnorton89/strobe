@@ -21,4 +21,4 @@ whenever something is finished; the evidence behind each tick is in
 
 <!-- @document -->
 
-Read the full roadmap — Now, Next, Phases and Known gaps
+The roadmap: Now, Next, Phases and Known gaps

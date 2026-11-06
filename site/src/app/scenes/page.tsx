@@ -7,26 +7,15 @@ import ShellBlock from "@/components/ShellBlock";
 import { GridFill, Prose, SourceNote } from "@/components/ui";
 import { ScenesIcon, ShellIcon } from "@/components/brand/icons";
 import { CONTAINER } from "@/lib/constants";
-import { ogImageMetadata } from "@/lib/og-image";
+import { pageMetadata } from "@/lib/og/metadata";
 import { readScenes } from "@/lib/scenes";
 import { DEFAULT_BRANCH, REPO_URL } from "@/lib/site";
 
-/** Social image copy, rendered by ./og-image/route.tsx. */
-export const og = {
-  eyebrow: "Scene library",
-  title: "Original scenes, every one a real frame.",
-  description:
-    "Five tiers of GPU load from a drifting gradient to raymarched clouds, a scripted physics scene, and feedback-driven paint studies. All original work, MIT licensed.",
-  alt: "Strobe social card — the scene library.",
-};
-
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata("/scenes/", {
   title: "Scenes",
   description:
-    "The original scenes that ship with Strobe: benchmark tiers from a gradient to volumetric clouds, a script.js physics scene, and audio-reactive feedback studies.",
-  alternates: { canonical: "/scenes/" },
-  ...ogImageMetadata("/scenes/", og),
-};
+    "The original scenes that ship with Strobe: benchmark tiers from a gradient to volumetric clouds, a script.js physics scene, and audio-reactive show pieces.",
+});
 
 export default async function ScenesPage() {
   const scenes = await readScenes();
@@ -39,8 +28,8 @@ export default async function ScenesPage() {
         section="Scenes"
         note={`${scenes.length} scenes · scenes/ in the repository`}
         icon={ScenesIcon}
-        title="Original scenes, every one a real frame."
-        lede={`Strobe ships with ${scenes.length} original scenes. ${tiered.length} of them span ${tiers.size} benchmark tiers of rising GPU load — the set \`strobe-bench\` times on every machine — and the rest are scripted and audio-reactive studies. Each thumbnail is the scene's own.`}
+        title="The scene library."
+        lede={`Strobe ships with ${scenes.length} original scenes. ${tiered.length} of them span ${tiers.size} benchmark tiers of GPU load, the set \`strobe-bench\` times on every machine, and the rest are a scripted physics scene and audio-reactive pieces. Each thumbnail is a frame of the scene it names. Pick one to open it in the browser sandbox.`}
       />
 
       <section className={`${CONTAINER} pt-14`}>
@@ -60,7 +49,7 @@ export default async function ScenesPage() {
           <Reveal>
             <Prose>
               {
-                "Every scene is a Synesthesia scene folder: `main.glsl` for the shader, `scene.json` for its controls, passes and tags, and an optional `script.js`. Strobe reads them unchanged, and its own extensions are extra keys Synesthesia ignores.\n\nTo render every scene headless and get a frame, a timing and a contact sheet for each, run the bench."
+                "Every scene is a Synesthesia scene folder: `main.glsl` for the shader, `scene.json` for its controls, passes and tags, and an optional `script.js`. Strobe reads them unchanged, and its own extensions are extra keys Synesthesia ignores.\n\nThe bench renders every scene and writes a frame and a timing for each, and a contact sheet."
               }
             </Prose>
           </Reveal>
@@ -75,7 +64,7 @@ export default async function ScenesPage() {
           </Reveal>
         </div>
         <SourceNote className="mt-14">
-          {`The scenes in \`scenes/\` are original work under the project's MIT licence. Timings for each tier on llvmpipe, the T480 and the GTX 1080 Ti are in [docs/BENCHMARKS.md](${REPO_URL}/blob/${DEFAULT_BRANCH}/docs/BENCHMARKS.md).`}
+          {`The scenes in \`scenes/\` are original work under the project's licence, MIT with the Commons Clause. Timings on llvmpipe, the T480, the GTX 1080 Ti and the RX 580 are in [docs/BENCHMARKS.md](${REPO_URL}/blob/${DEFAULT_BRANCH}/docs/BENCHMARKS.md).`}
         </SourceNote>
       </section>
     </article>

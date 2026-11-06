@@ -1,16 +1,22 @@
 /*
  * Single source of truth for the site's identity strings and navigation.
  *
- * The positioning line and the descriptor are the brand guide's own copy
- * (docs/branding.md, "Brand at a glance" and section 9), not rewritten here.
+ * The repository's slug is written here and nowhere else in the site's code
+ * (tests/unit/hardcoded.test.ts holds that), so a move to another GitHub
+ * organisation is one edit here and the `repository` fields of package.json.
  */
 
-export const REPO_URL = "https://github.com/lnorton89/strobe";
+export const REPO = "lnorton89/strobe";
+
+export const REPO_URL = `https://github.com/${REPO}`;
 
 /** The branch the site links into and the activity feed reads. */
 export const DEFAULT_BRANCH = "master";
 
 export const RELEASES_URL = `${REPO_URL}/releases`;
+
+/** GitHub's redirect to the newest published release, whatever it is. */
+export const LATEST_RELEASE_URL = `${RELEASES_URL}/latest`;
 
 /**
  * The deployed origin, used as the metadata base for canonical and social
@@ -24,29 +30,26 @@ export const RELEASES_URL = `${REPO_URL}/releases`;
 export const SITE_URL =
   process.env.NEXT_PUBLIC_SITE_URL ?? process.env.URL ?? "http://localhost:4173";
 
-/** The guide's descriptor, and the page title's second half. */
-export const TAGLINE = "Real-time shader visualization for live shows.";
+/** The page title's second half, and what the project is in one line. */
+export const TAGLINE = "A VJ engine for audio-reactive GLSL scenes";
 
-/**
- * The site's meta description.
- *
- * The guide's positioning statement names what Strobe turns into what; this
- * adds the two facts a visitor needs to tell whether it is for them: it plays
- * Synesthesia scenes, and it runs on old hardware.
- */
+/** The site's meta description. */
 export const DESCRIPTION =
-  "Strobe is an open-source VJ engine that plays audio-reactive GLSL scenes, imports Shadertoy shaders and runs long playlists — built to stay up on old laptops, projectors and LED walls.";
+  "Strobe is a VJ engine in Rust. It plays Synesthesia scenes unchanged, imports Shadertoy shaders and runs shows from playlists, on OpenGL 3.3 with ANGLE as the fallback. Source-available; for testing, not yet for production.";
 
-/** The guide's positioning statement, verbatim. */
-export const POSITIONING =
-  "STROBE turns real-time signals and shader code into expressive visual systems for screens, projectors, and live environments.";
+/** The footer's one line about the project. */
+export const SUMMARY =
+  "A VJ engine for audio-reactive GLSL scenes, in Rust. Plays Synesthesia scenes, imports Shadertoy shaders, runs playlists.";
+
+/** The licence, the same words wherever it is named. See the repository's LICENSE. */
+export const LICENCE = "Source-available: MIT with the Commons Clause";
 
 /** The metadata strip under the hero. */
-export const BADGES = ["MIT", "Rust", "OpenGL 3.3"] as const;
+export const BADGES = ["Source-available", "Rust", "OpenGL 3.3"] as const;
+
 /**
  * What a release is fit for, beside its number. The number itself is never
- * written here: it is read from GitHub's latest release at build time
- * (lib/release.ts), so the site cannot fall behind a release.
+ * written here: it comes from lib/release.ts.
  */
 export const RELEASE_STAGE = "testing";
 
@@ -95,7 +98,7 @@ export const NAV: readonly NavItem[] = [
   {
     href: "/play/",
     label: "Play",
-    blurb: "Write and run Strobe scenes in the browser.",
+    blurb: "Strobe's scene player in the browser, on WebGL2.",
     icon: "play",
   },
   {
@@ -107,7 +110,7 @@ export const NAV: readonly NavItem[] = [
   {
     href: "/architecture/",
     label: "Architecture",
-    blurb: "Fifteen crates, one frame loop, one GPU boundary.",
+    blurb: "The crate graph, the frame loop, the GPU boundary.",
     icon: "architecture",
   },
   {
@@ -129,6 +132,8 @@ export const EXPORTED_ROUTES = [
   "/architecture/",
   "/roadmap/",
 ] as const;
+
+export type ExportedRoute = (typeof EXPORTED_ROUTES)[number];
 
 /** Backwards-compatible route registry name used by export checks. */
 export const ROUTES = EXPORTED_ROUTES;
