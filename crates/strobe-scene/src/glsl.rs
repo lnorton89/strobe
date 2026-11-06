@@ -1,7 +1,8 @@
 // ============================================================================
-// Module:       strobe_shadertoy::glsl
+// Module:       strobe_scene::glsl
 // Description:  A lossless GLSL tokenizer: just enough to rewrite identifiers
-//               and delete statements without touching anything else.
+//               and delete statements without touching anything else, and the
+//               marker lines a generated pass file carries.
 //
 // Dependencies: std only
 // ============================================================================
@@ -21,6 +22,30 @@
 //! preprocessor lines (a `#` as the first thing on a line, through the
 //! line's end, following `\` continuations and block comments). It does not
 //! parse. Strings do not exist in GLSL.
+//!
+//! It lives here, with the scene model, because two crates that may not
+//! depend on each other read scene code: the Shadertoy converter, and
+//! `strobe-autocontrol`, which runs in the browser build where the importer
+//! cannot go (D558). The marker lines below are the contract between them.
+
+/// The comment line that opens each Shadertoy tab in a pass file, up to the
+/// tab's name: `// ---- Shadertoy tab: Image ----`.
+///
+/// A pass file is generated shim, then these tabs, then a generated entry
+/// point. A tool that reads the author's code (auto-generated controls)
+/// finds it between these markers and leaves the rest alone, so the
+/// markers are public and the shim writer uses the same constants.
+pub const TAB_MARKER_PREFIX: &str = "// ---- Shadertoy tab: ";
+
+/// What follows the tab's name on the marker line.
+pub const TAB_MARKER_SUFFIX: &str = " ----";
+
+/// The comment line that ends the author's code: the generated
+/// `renderMain` follows it.
+pub const ENTRY_MARKER: &str = "// ---- Strobe entry (generated) ----";
+
+/// The first line of the clock pass file, which holds no author code.
+pub const CLOCK_MARKER: &str = "// ---- Strobe clock pass (generated) ----";
 
 /// What a token is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

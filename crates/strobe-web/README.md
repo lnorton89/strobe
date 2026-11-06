@@ -17,7 +17,8 @@ it does in the app, line numbers in errors included.
   good scene), controls by name, presets, the script's uniforms and its
   `textureFinalPass` readback, three audio sources (the synthetic 120 BPM
   track, pushed live samples through `strobe-audio`'s `Analyzer`, silence),
-  and a frame.
+  a frame, and Generate controls a step at a time (`generate_start`,
+  `generate_step`, `generate_cancel`, `generate_apply`; D558).
 - `web` (wasm32 only) — the wasm-bindgen class the page calls, `Engine`, which
   opens the canvas's WebGL2 context and wraps it with `Gl::from_webgl2`.
 - `tests/sandbox.rs` — the sandbox on the headless GLES 3.0 context, so what
@@ -51,6 +52,13 @@ wasm-bindgen --target web --no-typescript --out-dir site/public/generated/engine
   buffer, so the read is `getBufferSubData` once the fence has signalled.
   Presets are `presets/<name>.json` text, captured and applied by
   `strobe_scene::preset` with the scene channel only.
+- **Generate controls runs between frames** (D558). The app measures in a
+  worker process; a tab has one context and no such worker, so the page takes
+  one `strobe_autocontrol::Job` step per animation frame and the scene keeps
+  playing. It measures with the app's options, so the same scene gets the same
+  controls. A proposal is data: the rewritten files reach the scene only when
+  the page puts them in its editor, and from there they autosave, share and
+  export like any edit.
 
 ## Status and known gaps
 

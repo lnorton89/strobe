@@ -53,7 +53,7 @@ The scene format gained a few keys for imports, documented in
 | `write(&Converted, library, replace)` | Writes the scene folder into a hidden staging folder, then renames it into place in one step |
 | `convert::Warning` | A lossy conversion, such as a video input bound to black, a missing texture or cube face, or a keyboard with no key feed |
 | `convert::ConvertError` | Something that cannot be converted, naming the pass and channel |
-| `dialect`, `glsl` | The lossless tokenizer and the token-level rewrites (D94) |
+| `dialect`, `glsl` | The token-level rewrites (D94), and the lossless tokenizer, re-exported from `strobe_scene::glsl`, where the browser build can reach it (D558) |
 
 ## Usage
 

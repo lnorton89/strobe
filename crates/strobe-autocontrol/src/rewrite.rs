@@ -43,7 +43,7 @@
 use crate::candidate::{Candidate, Rewrite, Site, ValueType};
 use crate::source::Sources;
 use std::collections::BTreeMap;
-use strobe_shadertoy::glsl::{self, Kind};
+use strobe_scene::glsl::{self, Kind};
 
 /// A reactive mapping generated into the GLSL and `CONTROLS`.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]

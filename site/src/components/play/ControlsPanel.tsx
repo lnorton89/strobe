@@ -223,7 +223,9 @@ export default function ControlsPanel({
   if (controls.length === 0) {
     return (
       <p className="px-4 py-3 text-sm text-secondary">
-        No controls. Add a CONTROLS list to scene.json and each one becomes a uniform here.
+        No controls. Add a CONTROLS list to scene.json and each one becomes a uniform here, or
+        press Generate controls: it measures the numbers in the shader and proposes the ones that
+        change the picture.
       </p>
     );
   }

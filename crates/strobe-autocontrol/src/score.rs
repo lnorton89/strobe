@@ -37,10 +37,23 @@
 //! score is the larger of the two. A nudge that turns a lit picture entirely
 //! black marks the candidate [`Broken`]: a slider that can black out the
 //! output is a hazard, not a control.
+//!
+//! ## A little at a time
+//!
+//! A [`Rig`] is built in two steps ([`Rig::begin`], then
+//! [`PendingRig::finish`] once [`PendingRig::ready`] says the driver is done)
+//! and [`Probing`] renders one probe per [`Probing::step`], so a host with one
+//! context and nothing else to run on (the browser, D558) can draw its own
+//! frames in between. [`Rig::new`] and [`measure`] run them to the end.
+//! Nothing here touches the default framebuffer, and the player binds what
+//! it draws with before every draw, so a live scene on the same context is
+//! not disturbed.
 
 use crate::candidate::{Candidate, ValueType};
 use strobe_gfx::gl::Gl;
-use strobe_gfx::{AudioTextures, Caps, FrameInputs, Mouse, Options, PlayerError, ScenePlayer};
+use strobe_gfx::{
+    AudioTextures, Caps, FrameInputs, Mouse, Options, PendingPlayer, PlayerError, ScenePlayer,
+};
 use strobe_scene::SceneFolder;
 use strobe_scene::audio::SCALARS;
 use strobe_scene::control::{ControlBank, ControlDef};
@@ -119,6 +132,39 @@ pub struct Rig {
     options: ScoreOptions,
 }
 
+/// A [`Rig`] whose shaders the driver is still building (D555, D558).
+pub struct PendingRig {
+    gl: Gl,
+    pending: PendingPlayer,
+    controls: Vec<ControlDef>,
+    transitions: Vec<f32>,
+    options: ScoreOptions,
+}
+
+impl PendingRig {
+    /// Whether [`Self::finish`] will not wait on the driver. Always true on
+    /// a driver that does not compile in the background.
+    pub fn ready(&self) -> bool {
+        self.pending.ready(&self.gl)
+    }
+
+    /// Reads how the build went and allocates the targets, waiting for the
+    /// driver if it is not done.
+    pub fn finish(self, caps: &Caps) -> Result<Rig, ScoreError> {
+        let mut player = self.pending.finish(&self.gl, caps)?;
+        // The wall clock would make a scene that reads the date render
+        // differently from one probe to the next.
+        player.set_date(FIXED_DATE);
+        Ok(Rig {
+            gl: self.gl,
+            player,
+            controls: self.controls,
+            transitions: self.transitions,
+            options: self.options,
+        })
+    }
+}
+
 impl Rig {
     /// Compiles `folder` and gets ready to render it at `options.size`.
     pub fn new(
@@ -127,19 +173,27 @@ impl Rig {
         folder: &SceneFolder,
         options: ScoreOptions,
     ) -> Result<Self, ScoreError> {
+        Self::begin(gl, caps, folder, options)?.finish(caps)
+    }
+
+    /// Hands `folder`'s shaders to the driver and returns without waiting
+    /// for them where the driver compiles in the background.
+    pub fn begin(
+        gl: &Gl,
+        caps: &Caps,
+        folder: &SceneFolder,
+        options: ScoreOptions,
+    ) -> Result<PendingRig, ScoreError> {
         // Context creation can leave a stale error flag that is not ours.
         gl.clear_errors();
         // A script's uniforms are declared (at zero) so a scripted scene
         // compiles without running its script (D259).
         let extras = crate::script::uniforms(folder);
-        let mut player =
-            ScenePlayer::with_extras(gl, caps, folder, options.size, Options::default(), &extras)?;
-        // The wall clock would make a scene that reads the date render
-        // differently from one probe to the next.
-        player.set_date(FIXED_DATE);
-        Ok(Self {
+        let pending =
+            ScenePlayer::begin(gl, caps, folder, options.size, Options::default(), &extras)?;
+        Ok(PendingRig {
             gl: gl.clone(),
-            player,
+            pending,
             controls: folder.def.controls.clone(),
             transitions: folder
                 .def
@@ -149,6 +203,15 @@ impl Rig {
                 .collect(),
             options,
         })
+    }
+
+    /// Gives `IMAGES` entry `index` the picture in `encoded`: a host with no
+    /// scene folder behind it holds its pictures itself (D554, D558). A
+    /// picture that does not decode reads black, as it does when played.
+    pub fn replace_image(&mut self, index: usize, encoded: &[u8]) {
+        if let Err(error) = self.player.replace_image(index, encoded) {
+            log::warn!("image {index} while measuring: {error}");
+        }
     }
 
     /// Renders one probe: every control at its default except `overrides`
@@ -288,6 +351,109 @@ pub enum Broken {
     Black,
 }
 
+/// One candidate to measure: its nudges and its control's index.
+struct Probe {
+    nudges: Vec<Vec<f32>>,
+    control: usize,
+}
+
+/// Measuring a list of candidates one render at a time: the baseline, then
+/// each nudge of each candidate, as [`measure`] does in one call.
+pub struct Probing {
+    probes: Vec<Probe>,
+    baseline: Option<Frames>,
+    lit: bool,
+    /// The candidate being measured.
+    at: usize,
+    /// Its next nudge.
+    nudge: usize,
+    scores: Vec<f32>,
+    broken: Option<Broken>,
+    measures: Vec<Measure>,
+}
+
+impl Probing {
+    /// Ready to measure `probes`: `(candidate, index of its control in the
+    /// folder)`.
+    pub fn new(probes: &[(&Candidate, usize)]) -> Self {
+        Self {
+            probes: probes
+                .iter()
+                .map(|(candidate, control)| Probe {
+                    nudges: nudges(candidate),
+                    control: *control,
+                })
+                .collect(),
+            baseline: None,
+            lit: false,
+            at: 0,
+            nudge: 0,
+            scores: Vec::new(),
+            broken: None,
+            measures: Vec::with_capacity(probes.len()),
+        }
+    }
+
+    /// How many candidates are measured.
+    pub fn done(&self) -> usize {
+        self.at
+    }
+
+    /// How many there are.
+    pub fn total(&self) -> usize {
+        self.probes.len()
+    }
+
+    /// Renders the next probe. `true` when every candidate is measured.
+    pub fn step(&mut self, rig: &mut Rig) -> Result<bool, ScoreError> {
+        let Some(baseline) = &self.baseline else {
+            let baseline = rig.render(&[])?;
+            self.lit = !is_black(&baseline);
+            self.baseline = Some(baseline);
+            return Ok(self.settle());
+        };
+        if let Some(probe) = self.probes.get(self.at)
+            && let Some(values) = probe.nudges.get(self.nudge)
+        {
+            let frames = rig.render(&[(probe.control, values.clone())])?;
+            if self.lit && is_black(&frames) {
+                self.broken = Some(Broken::Black);
+            }
+            self.scores.push(difference(baseline, &frames));
+            self.nudge += 1;
+        }
+        Ok(self.settle())
+    }
+
+    /// Records every candidate whose nudges are all done (one may have
+    /// none). `true` when no candidate is left.
+    fn settle(&mut self) -> bool {
+        while let Some(probe) = self.probes.get(self.at) {
+            if self.nudge < probe.nudges.len() {
+                return false;
+            }
+            let low = self.scores.first().copied().unwrap_or(0.0);
+            let high = self.scores.get(1).copied().unwrap_or(0.0);
+            self.measures.push(Measure {
+                score: low.max(high),
+                low,
+                high,
+                broken: self.broken.take(),
+            });
+            self.scores.clear();
+            self.nudge = 0;
+            self.at += 1;
+        }
+        true
+    }
+
+    /// One [`Measure`] per probe, in order, and the baseline frames the
+    /// differences were taken against.
+    pub fn finish(self) -> (Vec<Measure>, Frames) {
+        (self.measures, self.baseline.unwrap_or_default())
+    }
+}
+
 /// Measures every probe: `(candidate, index of its control in the folder)`.
 ///
 /// Returns one [`Measure`] per probe, in order, and the baseline frames the
@@ -296,29 +462,9 @@ pub fn measure(
     rig: &mut Rig,
     probes: &[(&Candidate, usize)],
 ) -> Result<(Vec<Measure>, Frames), ScoreError> {
-    let baseline = rig.render(&[])?;
-    let lit = !is_black(&baseline);
-    let mut out = Vec::with_capacity(probes.len());
-    for (candidate, control) in probes {
-        let mut scores = Vec::new();
-        let mut broken = None;
-        for values in nudges(candidate) {
-            let frames = rig.render(&[(*control, values)])?;
-            if lit && is_black(&frames) {
-                broken = Some(Broken::Black);
-            }
-            scores.push(difference(&baseline, &frames));
-        }
-        let low = scores.first().copied().unwrap_or(0.0);
-        let high = scores.get(1).copied().unwrap_or(0.0);
-        out.push(Measure {
-            score: low.max(high),
-            low,
-            high,
-            broken,
-        });
-    }
-    Ok((out, baseline))
+    let mut probing = Probing::new(probes);
+    while !probing.step(rig)? {}
+    Ok(probing.finish())
 }
 
 #[cfg(test)]

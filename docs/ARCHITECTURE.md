@@ -46,20 +46,22 @@ D205; OSC feedback in `strobe-io::feedback`, D209.)
 flowchart TD
     app[strobe-app] --> shadertoy[strobe-shadertoy] & autocontrol[strobe-autocontrol] & script[strobe-script] & audio[strobe-audio] & io[strobe-io] & gfx[strobe-gfx] & scene[strobe-scene] & playlist[strobe-playlist] & remote[strobe-remote] & projector[strobe-projector] & capture[strobe-capture] & diag[strobe-diag]
     projector --> diag
-    autocontrol --> shadertoy & gfx & scene & ssf[strobe-ssf-lib]
+    autocontrol --> gfx & scene & ssf[strobe-ssf-lib]
+    autocontrol -. "dev-dependency: converted fixtures" .-> shadertoy
     shadertoy --> scene & ssf & diag
     shadertoy -. "dev-dependency: render tests" .-> gfx
     script & audio & io & gfx --> scene
     scene --> ssf
     bench[strobe-bench] --> gfx & scene & diag
-    web[strobe-web] --> gfx & audio & scene
+    web[strobe-web] --> gfx & audio & scene & autocontrol
 ```
 
 Arrows point at what a crate depends on; this is `cargo metadata`'s
 workspace graph. `strobe-playlist`, `strobe-remote`, `strobe-capture` and
 `strobe-diag` depend on no Strobe crate; `strobe-io` brings in `midir` and `rosc`, and
 `strobe-remote` `serde`, `sha1`, `sha2` and `getrandom`. The app runs
-`strobe-autocontrol` in a worker process (D202).
+`strobe-autocontrol` in a worker process (D202); the browser build runs it on
+the page's one context, a step at a time (D558).
 
 - `strobe-scene` knows nothing about GL, threads, or clocks: `dt` is
   passed in. Every SSF rule (control types, smoothing, pass layout, name
@@ -73,10 +75,13 @@ workspace graph. `strobe-playlist`, `strobe-remote`, `strobe-capture` and
   a shader's names that the library compiled ahead of it also declares
   (D360). `strobe-gfx` must never depend on it;
   its render tests take `strobe-gfx` as a dev-dependency instead.
-- `strobe-autocontrol` depends on `strobe-scene`, `strobe-ssf-lib`, the
-  tokenizer and tab markers of `strobe-shadertoy`, and `strobe-gfx` (to
-  render for scoring). `strobe-gfx` must never depend on it, and the frame
-  loop never calls it: scoring runs at import time (D123).
+- `strobe-autocontrol` depends on `strobe-scene` (which holds the GLSL
+  tokenizer and the tab markers the importer writes, D558), `strobe-ssf-lib`
+  and `strobe-gfx` (to render for scoring). `strobe-gfx` must never depend on
+  it, and the app's frame loop never calls it: scoring runs at import time
+  (D123). Its command line and that line's offscreen contexts are a `cli`
+  feature, off for every crate that links it, so the library also builds for
+  the browser.
 - `strobe-io` depends on `strobe-scene` (for `ControlBank`, name matching
   and presets) and on `rosc` and `midir`, and **never on `strobe-gfx`**, a
   window or egui. It writes controls only through `ControlBank`, so toggle,
@@ -113,6 +118,7 @@ workspace graph. `strobe-playlist`, `strobe-remote`, `strobe-capture` and
   without `capture` (the page pushes samples). It never takes
   `strobe-script`, `strobe-diag` or anything that compiles C: QuickJS does
   not build for the browser, so the page runs `script.js` in a Web Worker.
+  It takes `strobe-autocontrol` without `cli`, for Generate controls (D558).
   The workspace therefore names `strobe-gfx` and `strobe-audio` with
   default features off, and the native crates ask for `native` and
   `capture` themselves.
@@ -605,7 +611,9 @@ What it writes, and how the player runs it:
 Pure analysis, a rewrite that keeps line numbers, and one stage that needs a
 GL context. See D123-D126 for the rules. The library takes the context from
 its caller (`generate(&Gl, &Caps, ..)`); the CLI gets one from
-`strobe_gfx::offscreen`, headless or a hidden window (D140).
+`strobe_gfx::offscreen`, headless or a hidden window (D140). `generate` is a
+`Job` run to its end; the browser takes a `Job::step` per animation frame
+(D558).
 
 ```
 Sources (per-pass GLSL)          source.rs     Scan: tokens + offsets + depth;
@@ -635,3 +643,7 @@ Generated { report, sources, control_lines, folder }
   result is opened as the copy or, on *Save to this scene*, copied back
   over the files it rewrote, each backed up first (`generate::save_into`,
   D488).
+- The browser sandbox runs it on the page's context between the scene's own
+  frames (`Sandbox::generate_step`, D558). A build is polled rather than
+  waited for where the browser offers `KHR_parallel_shader_compile`, and the
+  result comes back as files (`output::rewritten_files`), not a folder.

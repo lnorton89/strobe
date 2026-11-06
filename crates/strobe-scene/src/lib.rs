@@ -61,6 +61,7 @@ pub mod date;
 pub mod directives;
 pub mod error;
 pub mod fixups;
+pub mod glsl;
 pub mod include;
 pub mod json;
 pub mod json_edit;

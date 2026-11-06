@@ -24,6 +24,7 @@ compiles. It owns every SSF rule that can be decided without a GPU.
 | Item | What |
 |---|---|
 | `SceneFolder` (`load`) | `SceneFolder::load(dir)` reads and validates a scene folder: `def`, `shader`, optional `script`. `load::scan(library)` lists scene folders in a library directory. |
+| `glsl` | A lossless GLSL tokenizer, and the marker lines of a converted Shadertoy pass file: the converter writes them and `strobe-autocontrol` reads them, and neither may depend on the other's dependencies (D558). |
 | `SceneDef` (`scene`) | The validated `scene.json`: controls, passes (always ending with the implicit final pass), images, cubemaps, transition uniforms. `SceneDef::parse(json, fallback_title)`. |
 | `json` | `Raw*` structs that mirror the file as written, tolerant of a number where an array is allowed and of unknown keys. |
 | `control::ControlDef`, `ControlKind` | A validated control and its parsed `TYPE` (slider, knob, toggle, bang, xy, color, dropdown, with the smooth / speed / counter modifiers each accepts). |

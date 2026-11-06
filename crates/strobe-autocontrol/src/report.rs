@@ -16,7 +16,7 @@
 use crate::candidate::{Candidate, Group, Kind, Site, ValueType};
 use crate::score::{Broken, Measure, ScoreOptions};
 use crate::suggest::AudioSuggestion;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::fmt::Write as _;
 
 /// What became of a candidate.
@@ -137,6 +137,80 @@ pub struct Report {
     pub kept: Vec<String>,
     /// Reactive mappings proposed for the strongest controls.
     pub suggestions: Vec<AudioSuggestion>,
+}
+
+/// One generated control, as a review shows it (D202, D219): the app's card
+/// and the browser sandbox's list both read these.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Kept {
+    /// The candidate's id in the engine's analysis, for a review to name it
+    /// again (D219).
+    #[serde(default)]
+    pub candidate: usize,
+    /// The control's name.
+    pub name: String,
+    /// The group it is listed in.
+    pub group: String,
+    /// What the literal was doing (`colour`, `time scale`...).
+    pub kind: String,
+    /// The original value, which is the control's default.
+    pub default: Vec<f32>,
+    /// Lower bound.
+    pub min: Vec<f32>,
+    /// Upper bound.
+    pub max: Vec<f32>,
+    /// How much the picture moved when it was nudged, `0..1`.
+    pub score: Option<f32>,
+    /// The line of code it came from.
+    pub context: String,
+}
+
+impl Report {
+    /// The controls made, strongest first.
+    pub fn kept_controls(&self) -> Vec<Kept> {
+        let mut kept: Vec<(usize, Kept)> = self
+            .candidates
+            .iter()
+            .filter_map(|c| match (&c.verdict, &c.name) {
+                (Verdict::Kept { rank }, Some(name)) => Some((
+                    *rank,
+                    Kept {
+                        candidate: c.id,
+                        name: name.clone(),
+                        group: c.group.ui_name().to_owned(),
+                        kind: c.kind.label().to_owned(),
+                        default: c.default.clone(),
+                        min: c.min.clone(),
+                        max: c.max.clone(),
+                        score: c.score,
+                        context: c.context.trim().to_owned(),
+                    },
+                )),
+                (
+                    Verdict::Kept { .. }
+                    | Verdict::Cut { .. }
+                    | Verdict::Weak { .. }
+                    | Verdict::QualityLimit { .. }
+                    | Verdict::Unfaithful { .. }
+                    | Verdict::Dead
+                    | Verdict::Broken { .. }
+                    | Verdict::DoesNotCompile { .. }
+                    | Verdict::NotScored,
+                    _,
+                ) => None,
+            })
+            .collect();
+        kept.sort_by_key(|(rank, _)| *rank);
+        kept.into_iter().map(|(_, k)| k).collect()
+    }
+
+    /// The suggested audio pairings, one line each.
+    pub fn suggestion_lines(&self) -> Vec<String> {
+        self.suggestions
+            .iter()
+            .map(|s| format!("{} with {}: {}", s.control, s.band, s.reason))
+            .collect()
+    }
 }
 
 /// Rounds a score to five decimals, so equal runs print equal numbers.

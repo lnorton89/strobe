@@ -18,11 +18,16 @@
  *   zip, and in a link or this browser while small), a script that calls
  *   textureFinalPass gets the engine's 64x36 readback, and presets are
  *   presets/<name>.json files saved and applied by the app's own rules.
+ * - Generate controls runs in the frame loop, one step per animation frame
+ *   between the scene's own frames (D558), so the preview keeps playing. What
+ *   it proposes changes nothing until it is accepted; then it is an edit like
+ *   any other, and it can be undone.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import CodeEditor, { type LineError } from "@/components/play/CodeEditor";
 import ControlsPanel from "@/components/play/ControlsPanel";
+import GeneratePanel, { type GenerateState } from "@/components/play/GeneratePanel";
 import { type LiveAudio, openFile, openMicrophone } from "@/lib/play/audio";
 import { type ControlJson, type Engine, controlDims, loadEngine } from "@/lib/play/engine";
 import {
@@ -48,6 +53,19 @@ import {
   validPresetName,
   writeZip,
 } from "@/lib/play/files";
+import {
+  type GenerateAnswer,
+  type ReviewRow,
+  changedFiles,
+  choicesFrom,
+  failureMessage,
+  nextStepAt,
+  nothingToOffer,
+  reviewRows,
+  sameSources,
+  undoGenerate,
+  usesIncludes,
+} from "@/lib/play/generate";
 import type { ConsoleLine, ControlInfo, FromWorker, ToWorker } from "@/lib/play/script-protocol";
 import { workerMain } from "@/lib/play/script-worker";
 
@@ -61,6 +79,8 @@ const SCRIPT_DEADLINE_MS = 1000;
 const MAX_CONSOLE = 200;
 /** The textureFinalPass picture: 64x36 RGB, as the engine reads it back. */
 const FINAL_PASS_BYTES = 64 * 36 * 3;
+/** How often the progress line may redraw the page while a generation runs. */
+const PROGRESS_MS = 100;
 
 /** `main.glsl:12:5: message` and `main.glsl:12: message`, as the player and the worker write them. */
 function lineErrors(error: string): Map<string, LineError[]> {
@@ -169,6 +189,21 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
     dropped?: string[];
   } | null>(null);
   const [fps, setFps] = useState(0);
+  /** A compile has succeeded, so the status line may say so. */
+  const [compiledOnce, setCompiledOnce] = useState(false);
+  /** How many of the scene's controls a person wrote, for the button's wording. */
+  const [authored, setAuthored] = useState(0);
+  /** Generate controls' strip: progress, its review, or what came of it. */
+  const [generate, setGenerate] = useState<GenerateState | null>(null);
+  /** The run in progress: the scene it measures and when its next step may go. */
+  const generating = useRef<{
+    snapshot: Scene;
+    started: number;
+    nextAt: number;
+    shownAt: number;
+  } | null>(null);
+  /** A scene compile() was already called for, which the edit timer skips. */
+  const compiledAlready = useRef<Scene | null>(null);
 
   const live = useRef<LiveAudio | null>(null);
   const worker = useRef<Worker | null>(null);
@@ -290,6 +325,8 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
         }
         setControls(JSON.parse(json) as ControlJson[]);
         setNotes(JSON.parse(made.notesJson()) as string[]);
+        setAuthored(made.authoredControls());
+        setCompiledOnce(true);
         readsFinal.current = made.readsFinalPass();
         setError(null);
         if (script) {
@@ -329,6 +366,18 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
   useEffect(() => {
     if (!scene) return;
     store(scene);
+    // An edit stops a run: what it measured is no longer the scene.
+    const run = generating.current;
+    if (run && !sameSources(scene, run.snapshot)) {
+      generating.current = null;
+      engine.current?.generateCancel();
+      setGenerate({
+        state: "message",
+        tone: "info",
+        text: "You edited the scene, so measuring stopped. Nothing else changed. Generate again when you are ready.",
+      });
+    }
+    if (compiledAlready.current === scene) return;
     const fresh = opened.current === null || opened.current.title !== scene.title;
     if (fresh || !autoCompile) {
       if (fresh) {
@@ -340,6 +389,48 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
     const timer = window.setTimeout(() => void compile(scene), RECOMPILE_MS);
     return () => window.clearTimeout(timer);
   }, [scene, autoCompile, compile]);
+
+  /* ---- generating controls ---------------------------------------------- */
+
+  /** One step of a run, if one is running and its turn has come. */
+  const stepGenerate = useCallback((now: number) => {
+    const run = generating.current;
+    const made = engine.current;
+    if (!run || !made || now < run.nextAt) return;
+    const started = performance.now();
+    let answer: GenerateAnswer;
+    try {
+      answer = JSON.parse(made.generateStep()) as GenerateAnswer;
+    } catch (caught) {
+      generating.current = null;
+      setGenerate({ state: "message", tone: "error", text: failureMessage(caught, run.snapshot) });
+      return;
+    }
+    const cost = performance.now() - started;
+    run.nextAt = nextStepAt(started, cost);
+    // The script's deadline does not count the time this took from it.
+    if (awaiting.current !== null) awaiting.current += cost;
+    if (answer.state === "running") {
+      if (now - run.shownAt >= PROGRESS_MS) {
+        run.shownAt = now;
+        setGenerate({ state: "running", progress: answer });
+      }
+      return;
+    }
+    generating.current = null;
+    const seconds = (performance.now() - run.started) / 1000;
+    setGenerate(
+      answer.kept.length === 0
+        ? { state: "message", tone: "info", text: nothingToOffer(answer) }
+        : {
+            state: "review",
+            proposal: answer,
+            rows: reviewRows(answer),
+            snapshot: run.snapshot,
+            seconds,
+          },
+    );
+  }, []);
 
   /* ---- the frame loop --------------------------------------------------- */
 
@@ -356,7 +447,11 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
       const c = clock.current;
       const dt = c.last === 0 ? 1 / 60 : Math.min((now - c.last) / 1000, 0.1);
       c.last = now;
-      if (!playingRef.current) return;
+      if (!playingRef.current) {
+        // Paused, the picture holds and the measuring goes on behind it.
+        stepGenerate(now);
+        return;
+      }
       c.time += dt;
       c.frame += 1;
 
@@ -377,6 +472,7 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
         (m.y - 0.5 * h) / h,
       ];
       made.frame(c.time, dt, c.frame, new Float32Array(mouseValues), Date.now() / 1000, w, h);
+      stepGenerate(now);
 
       const script = worker.current;
       if (script) {
@@ -422,7 +518,7 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, []);
+  }, [stepGenerate]);
 
   // The canvas's pixels follow its box, at up to twice the CSS size.
   useEffect(() => {
@@ -482,7 +578,14 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
     return parsed;
   }
 
+  const stopGenerate = useCallback(() => {
+    generating.current = null;
+    engine.current?.generateCancel();
+  }, []);
+
   const open = useCallback((next: Scene) => {
+    stopGenerate();
+    setGenerate(null);
     opened.current = null;
     clock.current.time = 0;
     clock.current.frame = 0;
@@ -493,7 +596,7 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
     if (window.location.hash || sharedIdFromPath(window.location.pathname)) {
       history.replaceState(null, "", "/play/");
     }
-  }, []);
+  }, [stopGenerate]);
 
   const edit = useCallback((file: string, text: string) => {
     setScene((old) => (old ? { ...old, files: { ...old.files, [file]: text } } : old));
@@ -642,6 +745,86 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
     }
   }
 
+  /** Starts measuring the scene as it is in the editor now. */
+  function startGenerate() {
+    const made = engine.current;
+    if (!scene || !made) return;
+    try {
+      const first = JSON.parse(
+        made.generateStart(scene.title, scene.files, imageBytes(scene)),
+      ) as GenerateAnswer;
+      const now = performance.now();
+      generating.current = { snapshot: scene, started: now, nextAt: 0, shownAt: now };
+      if (first.state === "running") setGenerate({ state: "running", progress: first });
+    } catch (caught) {
+      generating.current = null;
+      setGenerate({ state: "message", tone: "error", text: failureMessage(caught, scene) });
+    }
+  }
+
+  function cancelGenerate() {
+    stopGenerate();
+    setGenerate({ state: "message", tone: "info", text: "Cancelled. Nothing changed." });
+  }
+
+  function changeRow(index: number, next: ReviewRow) {
+    setGenerate((old) =>
+      old?.state === "review"
+        ? {
+            ...old,
+            problem: undefined,
+            rows: old.rows.map((row, at) => (at === index ? next : row)),
+          }
+        : old,
+    );
+  }
+
+  /** Puts a compiled change in the editor: an edit like any other, compiled now. */
+  function applyFiles(next: Scene) {
+    compiledAlready.current = next;
+    setScene(next);
+    void compile(next);
+  }
+
+  /** The kept controls become an edit: autosaved, shared and exported like one. */
+  function acceptGenerate() {
+    const made = engine.current;
+    if (!scene || !made || generate?.state !== "review") return;
+    if (!sameSources(scene, generate.snapshot)) return;
+    const choices = choicesFrom(generate.rows);
+    try {
+      const files = JSON.parse(
+        made.generateApply(scene.title, scene.files, JSON.stringify(choices)),
+      ) as Record<string, string>;
+      const after: Scene = { ...scene, files: { ...scene.files, ...files } };
+      applyFiles(after);
+      setGenerate({
+        state: "accepted",
+        count: choices.length,
+        files: changedFiles(scene, after),
+        before: scene,
+        after,
+      });
+    } catch (caught) {
+      setGenerate({ ...generate, problem: String(caught).replace(/^Error: /, "") });
+    }
+  }
+
+  function undoAccepted() {
+    if (!scene || generate?.state !== "accepted") return;
+    const { scene: restored, lost } = undoGenerate(scene, generate.before, generate.after);
+    if (
+      lost.length > 0 &&
+      !window.confirm(
+        `Undo the generated controls? Your edits since then to ${lost.join(", ")} will be lost too.`,
+      )
+    ) {
+      return;
+    }
+    applyFiles(restored);
+    setGenerate({ state: "message", tone: "info", text: "Undone. The files are as they were." });
+  }
+
   function rewind() {
     clock.current.time = 0;
     clock.current.frame = 0;
@@ -676,6 +859,18 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
     return name === undefined ? [] : [{ file, name }];
   });
   const activeImage = scene?.images?.[active];
+  const generateStale =
+    generate?.state === "review" && scene !== null && !sameSources(scene, generate.snapshot);
+  const generateNotes = [
+    ...(scene?.files["script.js"] !== undefined
+      ? [
+          "This scene has a script, which does not run while measuring: its uniforms stay at zero, so a number that only matters through them may measure low.",
+        ]
+      : []),
+    ...(scene && usesIncludes(scene)
+      ? ["Adding them writes the included code into the file that includes it, as the app's copy does."]
+      : []),
+  ];
 
   /* ---- pointer ---------------------------------------------------------- */
 
@@ -831,7 +1026,28 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
             <button type="button" className={BUTTON} onClick={savePreset}>
               Save preset
             </button>
+            <button
+              type="button"
+              className={BUTTON}
+              disabled={!scene || generate?.state === "running"}
+              title="Measure the numbers in this scene's code, while it plays, and propose the ones that change the picture as controls. Nothing changes until you add them."
+              onClick={startGenerate}
+            >
+              {authored > 0 ? "Add generated controls" : "Generate controls"}
+            </button>
           </div>
+          {generate ? (
+            <GeneratePanel
+              state={generate}
+              stale={generateStale}
+              notes={generateNotes}
+              cancel={cancelGenerate}
+              dismiss={() => setGenerate(null)}
+              changeRow={changeRow}
+              accept={acceptGenerate}
+              undo={undoAccepted}
+            />
+          ) : null}
           <ControlsPanel controls={controls} set={setControl} />
         </div>
       </section>
@@ -1059,7 +1275,9 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
           ) : null}
           {!error && !scriptError ? (
             <p className="text-label">
-              Compiled · {renderer || "starting"} · Ctrl+Enter compiles now
+              {compiledOnce
+                ? `Compiled · ${renderer} · Ctrl+Enter compiles now`
+                : "Starting the engine…"}
             </p>
           ) : null}
           {consoleLines.map((line, index) => (

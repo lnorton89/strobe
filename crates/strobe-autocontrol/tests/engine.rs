@@ -26,13 +26,17 @@
 //!   picture is the original's, and no line of any file moved.
 //! - **Deterministic**: a second run gives an identical report, the same
 //!   controls and the same GLSL.
+//! - **A step at a time is the same run** (D558): a [`Job`] stepped to its end
+//!   gives what [`generate`] gives, and one dropped at any step leaves no GL
+//!   object behind.
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use strobe_autocontrol::generate::{
-    Choice, GenerateError, Generated, Options, authored_controls, generate, rewrite_chosen,
+    Choice, GenerateError, Generated, Job, Options, Phase, authored_controls, generate,
+    rewrite_chosen,
 };
 use strobe_autocontrol::output::write_scene;
 use strobe_autocontrol::report::Verdict;
@@ -1260,6 +1264,171 @@ fn speeds_and_colours_in_defines_consts_and_helpers_get_controls() -> Result<()>
         kept.iter()
             .any(|(g, _)| *g == strobe_autocontrol::Group::Colour),
         "a colour is kept: {kept:?}"
+    );
+    Ok(())
+}
+
+/// Steps `job` to its end, as the browser's page does.
+fn run_stepped(mut job: Job) -> Result<Generated> {
+    // Generous: a driver compiling in the background answers "not yet" as
+    // often as it is asked.
+    for _ in 0..50_000_000_u64 {
+        if let Some(generated) = job.step()? {
+            return Ok(generated);
+        }
+    }
+    bail!("the job never finished")
+}
+
+#[test]
+fn a_job_stepped_to_its_end_gives_what_generate_gives_in_both_dialects() -> Result<()> {
+    let mut scenes = Vec::new();
+    for (name, path) in fixtures()? {
+        if name == "ring_tunnel" || name == "swirl_trails" {
+            scenes.push((name.clone(), import(&name, &path)?));
+        }
+    }
+    let plasma = manifest().join("../../scenes/02-plasma-pulse.synScene");
+    scenes.push((
+        "plasma".to_string(),
+        strip_controls(&plasma, "plasma-stepped")?,
+    ));
+    assert_eq!(scenes.len(), 3, "the fixtures are there");
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            return Ok(());
+        };
+        let gl = headless.gl();
+        let caps = Caps::from_info(gl.info());
+        let options = Options::default();
+        for (name, folder) in &scenes {
+            let whole = generate(gl, &caps, folder, &options)?;
+            let stepped = run_stepped(Job::new(gl, &caps, folder, &options)?)?;
+            assert!(!whole.report.kept.is_empty(), "{name}: controls were made");
+            assert_eq!(whole.report, stepped.report, "{name}: the same decisions");
+            assert_eq!(
+                whole.control_lines, stepped.control_lines,
+                "{name}: the same controls"
+            );
+            assert_eq!(whole.sources, stepped.sources, "{name}: the same GLSL");
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn a_job_says_how_far_it_has_got_a_candidate_at_a_time() -> Result<()> {
+    let Some(headless) = context(Api::Gles30)? else {
+        return Ok(());
+    };
+    let gl = headless.gl();
+    let caps = Caps::from_info(gl.info());
+    let (name, path) = fixtures()?
+        .into_iter()
+        .find(|(name, _)| name == "ring_tunnel")
+        .ok_or_else(|| anyhow!("ring_tunnel fixture"))?;
+    let folder = import(&name, &path)?;
+    let compiles = gl.shader_compiles();
+    let mut job = Job::new(gl, &caps, &folder, &Options::default())?;
+    assert_eq!(job.progress().phase, Phase::Preparing, "nothing has run");
+    assert_eq!(
+        gl.shader_compiles(),
+        compiles,
+        "making a job compiles nothing"
+    );
+
+    let mut last = 0;
+    let mut total = 0;
+    let mut scoring_steps = 0;
+    let mut phases = vec![Phase::Preparing];
+    let finished = loop {
+        let result = job.step()?;
+        let progress = job.progress();
+        if let Some(generated) = result {
+            break generated;
+        }
+        if phases.last() != Some(&progress.phase) {
+            phases.push(progress.phase);
+        }
+        if progress.phase == Phase::Scoring {
+            scoring_steps += 1;
+            assert!(progress.done >= last, "it only goes forward");
+            assert!(progress.done <= progress.total, "never past the end");
+            last = progress.done;
+            total = progress.total;
+        }
+    };
+    assert_eq!(
+        phases,
+        vec![Phase::Preparing, Phase::Scoring, Phase::Checking],
+        "in order"
+    );
+    assert!(total > 0, "there were candidates to measure");
+    assert!(
+        scoring_steps > total,
+        "at least one step per candidate and more for the baseline: {scoring_steps} for {total}"
+    );
+    assert!(!finished.report.kept.is_empty(), "and controls came out");
+    Ok(())
+}
+
+#[test]
+fn a_job_dropped_at_any_step_leaves_no_gl_object_behind() -> Result<()> {
+    let Some(headless) = context(Api::Gles30)? else {
+        return Ok(());
+    };
+    let gl = headless.gl();
+    let caps = Caps::from_info(gl.info());
+    let (name, path) = fixtures()?
+        .into_iter()
+        .find(|(name, _)| name == "ring_tunnel")
+        .ok_or_else(|| anyhow!("ring_tunnel fixture"))?;
+    let folder = import(&name, &path)?;
+    let options = Options::default();
+    let before = gl.live_objects();
+
+    // A cancel after each number of steps. Spaced out: every step is covered
+    // by the first few and the walk is what matters, not each probe.
+    let mut stopped_early = 0;
+    for steps in (0..400).step_by(7) {
+        let mut job = Job::new(gl, &caps, &folder, &options)?;
+        let mut ended = false;
+        for _ in 0..steps {
+            if job.step()?.is_some() {
+                ended = true;
+                break;
+            }
+        }
+        if !ended {
+            stopped_early += 1;
+            assert!(
+                gl.live_objects() > before || steps == 0,
+                "after {steps} step(s) the job holds something to free"
+            );
+        }
+        drop(job);
+        assert_eq!(
+            gl.live_objects(),
+            before,
+            "nothing is left after dropping it at step {steps}"
+        );
+    }
+    assert!(stopped_early > 2, "some cancels came before the end");
+
+    // A finished job frees everything too, and one stepped again says so.
+    let mut job = Job::new(gl, &caps, &folder, &options)?;
+    let mut finished = None;
+    for _ in 0..50_000_000_u64 {
+        if let Some(generated) = job.step()? {
+            finished = Some(generated);
+            break;
+        }
+    }
+    assert!(finished.is_some(), "it finished");
+    assert_eq!(gl.live_objects(), before, "a finished job holds nothing");
+    assert!(
+        matches!(job.step(), Err(GenerateError::Ended)),
+        "a further step is refused, not a panic"
     );
     Ok(())
 }

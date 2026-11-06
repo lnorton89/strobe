@@ -1,5 +1,12 @@
 import { defineConfig, devices } from "@playwright/test";
 
+/*
+ * The port the built site is served on. A second checkout's server left on
+ * the default would be reused silently, and the suite would test its build,
+ * so a machine with more than one checkout can name another.
+ */
+const PORT = process.env.PLAYWRIGHT_PORT ?? "4173";
+
 export default defineConfig({
   testDir: "./tests/e2e",
   fullyParallel: true,
@@ -16,7 +23,7 @@ export default defineConfig({
     },
   },
   use: {
-    baseURL: "http://localhost:4173",
+    baseURL: `http://localhost:${PORT}`,
     trace: "on-first-retry",
     /*
      * The brand's default presentation is dark, so that is what the suite
@@ -50,8 +57,8 @@ export default defineConfig({
     // No -s/--single: that rewrites every 404 to index.html and would mask a
     // genuinely broken route. `trailingSlash: true` means each route is its
     // own directory with an index.html, which `serve` resolves on its own.
-    command: "npx serve out -l 4173",
-    url: "http://localhost:4173",
+    command: `npx serve out -l ${PORT}`,
+    url: `http://localhost:${PORT}`,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },

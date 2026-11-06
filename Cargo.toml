@@ -30,7 +30,9 @@ strobe-script = { path = "crates/strobe-script" }
 strobe-diag = { path = "crates/strobe-diag" }
 strobe-playlist = { path = "crates/strobe-playlist" }
 strobe-io = { path = "crates/strobe-io" }
-strobe-autocontrol = { path = "crates/strobe-autocontrol" }
+# Without `cli` (clap and the offscreen contexts): the library runs on a context
+# its caller supplies, in the app's worker and in the browser build (D558).
+strobe-autocontrol = { path = "crates/strobe-autocontrol", default-features = false }
 strobe-remote = { path = "crates/strobe-remote" }
 strobe-projector = { path = "crates/strobe-projector" }
 strobe-capture = { path = "crates/strobe-capture" }
