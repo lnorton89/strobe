@@ -50,6 +50,21 @@ fn init_logging() {
     }
 }
 
+/// One file's text from the page's object of file name to text.
+fn file_text(files: &JsValue, name: &str) -> Option<String> {
+    js_sys::Reflect::get(files, &JsValue::from_str(name))
+        .ok()
+        .and_then(|value| value.as_string())
+}
+
+/// One picture's bytes from the page's object of file name to `Uint8Array`.
+fn asset_bytes(assets: &JsValue, name: &str) -> Option<Vec<u8>> {
+    js_sys::Reflect::get(assets, &JsValue::from_str(name))
+        .ok()
+        .and_then(|value| value.dyn_into::<js_sys::Uint8Array>().ok())
+        .map(|bytes| bytes.to_vec())
+}
+
 /// The sandbox on one canvas.
 #[wasm_bindgen]
 pub struct Engine {
@@ -111,18 +126,56 @@ impl Engine {
                 .into_iter()
                 .filter_map(|(name, dims)| extra_type(dims).map(|ty| (name, ty)))
                 .collect();
-        let file = |name: &str| {
-            js_sys::Reflect::get(&files, &JsValue::from_str(name))
-                .ok()
-                .and_then(|value| value.as_string())
-        };
-        let asset = |name: &str| {
-            js_sys::Reflect::get(&assets, &JsValue::from_str(name))
-                .ok()
-                .and_then(|value| value.dyn_into::<js_sys::Uint8Array>().ok())
-                .map(|bytes| bytes.to_vec())
-        };
+        let file = |name: &str| file_text(&files, name);
+        let asset = |name: &str| asset_bytes(&assets, name);
         self.sandbox.load(title, file, asset, extras)
+    }
+
+    /// How many of the loaded scene's controls a person wrote.
+    #[wasm_bindgen(js_name = authoredControls)]
+    pub fn authored_controls(&self) -> usize {
+        self.sandbox.authored_controls()
+    }
+
+    /// Starts generating controls for `files` and `assets`, as [`Self::load`]
+    /// takes them. Returns the first progress as JSON; throws why it cannot
+    /// start.
+    #[wasm_bindgen(js_name = generateStart)]
+    pub fn generate_start(
+        &mut self,
+        title: &str,
+        files: JsValue,
+        assets: JsValue,
+    ) -> Result<String, String> {
+        let file = |name: &str| file_text(&files, name);
+        let asset = |name: &str| asset_bytes(&assets, name);
+        self.sandbox.generate_start(title, file, asset)
+    }
+
+    /// Does one piece of the work; the progress or the proposal as JSON.
+    /// Throws the error that ended the run.
+    #[wasm_bindgen(js_name = generateStep)]
+    pub fn generate_step(&mut self) -> Result<String, String> {
+        self.sandbox.generate_step()
+    }
+
+    /// Stops a generation and frees what it made.
+    #[wasm_bindgen(js_name = generateCancel)]
+    pub fn generate_cancel(&mut self) {
+        self.sandbox.generate_cancel();
+    }
+
+    /// `files` with the controls kept in the review (`choices`, as JSON).
+    /// Returns the changed files as a JSON object; throws why it cannot.
+    #[wasm_bindgen(js_name = generateApply)]
+    pub fn generate_apply(
+        &self,
+        title: &str,
+        files: JsValue,
+        choices: &str,
+    ) -> Result<String, String> {
+        self.sandbox
+            .generate_apply(title, |name| file_text(&files, name), choices)
     }
 
     /// What the scene names that is not here (a picture not added, a cube

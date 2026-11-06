@@ -22,6 +22,9 @@
 //!
 //! The destination is `<library>/<name>-auto.synScene`. It must not exist
 //! unless the caller asks to replace it, and it must not be the source.
+//!
+//! A host with no disk (the browser sandbox, D558) takes the same result as
+//! text from [`rewritten_files`] instead: the same GLSL and the same splice.
 
 use crate::generate::Generated;
 use std::fs;
@@ -185,6 +188,25 @@ fn copy_tree(from: &Path, to: &Path) -> Result<(), OutputError> {
 pub fn output_name(source: &Path) -> String {
     let stem = strobe_scene::load::folder_title(source);
     format!("{stem}-auto.synScene")
+}
+
+/// The files `generated` changes, as `(file name, text)`: each rewritten GLSL
+/// file, then `scene.json` with the new `CONTROLS` spliced into `scene_json`,
+/// its current text. For a host that holds a scene in memory.
+pub fn rewritten_files(
+    generated: &Generated,
+    scene_json: Option<&str>,
+) -> Result<Vec<(String, String)>, OutputError> {
+    let mut files: Vec<(String, String)> = generated
+        .sources
+        .iter()
+        .map(|(name, text)| (name.to_string(), text.to_string()))
+        .collect();
+    files.push((
+        "scene.json".to_string(),
+        splice_controls(scene_json, &generated.control_lines)?,
+    ));
+    Ok(files)
 }
 
 /// Writes `generated` as a new scene next to `library`, copying `source`.

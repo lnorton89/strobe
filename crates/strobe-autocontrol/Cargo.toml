@@ -14,18 +14,36 @@ path = "src/lib.rs"
 [[bin]]
 name = "strobe-autocontrol"
 path = "src/main.rs"
+required-features = ["cli"]
+
+# It spawns the binary.
+[[test]]
+name = "window"
+required-features = ["cli"]
+
+[features]
+# The command line: its argument parser and the offscreen contexts it opens.
+# The library takes a context from its caller, so the app and the browser
+# build (strobe-web, D558) leave this off.
+default = ["cli"]
+cli = ["dep:anyhow", "dep:clap", "strobe-gfx/native"]
 
 [dependencies]
 strobe-scene.workspace = true
 strobe-ssf-lib.workspace = true
-strobe-shadertoy.workspace = true
-strobe-gfx = { workspace = true, features = ["native"] }
+strobe-gfx.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 log.workspace = true
+anyhow = { workspace = true, optional = true }
+clap = { workspace = true, optional = true }
+
+[dev-dependencies]
 anyhow.workspace = true
-clap.workspace = true
+# The tests convert the Shadertoy fixtures and open headless contexts.
+strobe-shadertoy.workspace = true
+strobe-gfx = { workspace = true, features = ["native"] }
 
 [lints]
 workspace = true

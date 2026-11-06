@@ -19,11 +19,17 @@
 //! `include-file` fixtures both ways, the app's (the folder from disk,
 //! `ScenePlayer`) and the sandbox's (the files and pictures as the page
 //! holds them), and require the same bytes.
+//!
+//! Generate controls (D558) is compared with the app's [`generate`] the same
+//! way: the same scene must get the same controls and the same files.
 
 #![cfg(not(target_arch = "wasm32"))]
 
-use anyhow::{Result, anyhow};
-use strobe_gfx::{Api, Headless};
+use anyhow::{Result, anyhow, bail};
+use serde_json::{Value, json};
+use strobe_autocontrol::{Options as GenerateOptions, generate, rewritten_files};
+use strobe_gfx::{Api, Caps, Headless};
+use strobe_scene::SceneFolder;
 use strobe_web::sandbox::{AudioSource, FrameRequest, Sandbox, extra_type};
 
 fn headless() -> Result<Option<Headless>> {
@@ -474,6 +480,432 @@ fn a_preset_captures_the_controls_and_brings_them_back() -> Result<()> {
     assert!(
         sandbox.apply_preset("{ nope").is_err(),
         "bad JSON is an error"
+    );
+    Ok(())
+}
+
+/// A scene with numbers worth a control and none yet.
+const BARS: &str = "vec4 renderMain() {\n    \
+    float w = sin(_uv.x * 12.0 + TIME * 2.0);\n    \
+    vec3 c = mix(vec3(0.9, 0.2, 0.1), vec3(0.1, 0.3, 0.9), 0.5 + 0.5 * w);\n    \
+    return vec4(c, 1.0);\n}\n";
+
+/// Runs a generation to its end, a step at a time as the page does.
+fn generate_steps(
+    sandbox: &mut Sandbox,
+    pairs: &[(&str, &str)],
+    between: &mut dyn FnMut(&mut Sandbox),
+) -> Result<Value> {
+    sandbox
+        .generate_start("scene", files(pairs), no_assets)
+        .map_err(|e| anyhow!(e))?;
+    for _ in 0..50_000_000_u64 {
+        let answer: Value =
+            serde_json::from_str(&sandbox.generate_step().map_err(|e| anyhow!(e))?)?;
+        if answer["state"] == "done" {
+            return Ok(answer);
+        }
+        between(sandbox);
+    }
+    bail!("the generation never finished")
+}
+
+/// What the review sends when a person changes nothing.
+fn all_kept(review: &Value) -> Value {
+    let kept = review["kept"].as_array().cloned().unwrap_or_default();
+    Value::Array(
+        kept.iter()
+            .map(|control| {
+                json!({
+                    "candidate": control["candidate"],
+                    "name": control["name"],
+                    "context": control["context"],
+                    "min": control["min"][0],
+                    "max": control["max"][0],
+                })
+            })
+            .collect(),
+    )
+}
+
+fn names(review: &Value) -> Vec<String> {
+    review["kept"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|control| control["name"].as_str().map(str::to_string))
+        .collect()
+}
+
+#[test]
+fn the_sandbox_proposes_and_writes_what_the_apps_engine_does() -> Result<()> {
+    let Some(headless) = headless()? else {
+        return Ok(());
+    };
+    let gl = headless.gl();
+    let caps = Caps::from_info(gl.info());
+    let pairs = [
+        ("main.glsl", BARS),
+        ("scene.json", "{ \"TITLE\": \"Bars\" }\n"),
+    ];
+    let folder = SceneFolder::from_files("scene", files(&pairs))?;
+    let app = generate(gl, &caps, &folder, &GenerateOptions::default())?;
+    assert!(!app.report.kept.is_empty(), "this scene gets controls");
+    let wanted = rewritten_files(&app, Some("{ \"TITLE\": \"Bars\" }\n"))?;
+
+    let mut sandbox = Sandbox::new(gl.clone(), SIZE, 48_000);
+    let review = generate_steps(&mut sandbox, &pairs, &mut |_| {})?;
+    let mut listed = names(&review);
+    listed.sort();
+    let mut kept = app.report.kept.clone();
+    kept.sort();
+    assert_eq!(listed, kept, "the same controls");
+    assert!(
+        review["fidelity"].as_f64().is_some_and(|f| f < 0.001),
+        "it says how faithful they are: {review}"
+    );
+
+    let text = sandbox
+        .generate_apply("scene", files(&pairs), &all_kept(&review).to_string())
+        .map_err(|e| anyhow!(e))?;
+    let written: Value = serde_json::from_str(&text)?;
+    for (name, content) in &wanted {
+        assert_eq!(
+            written[name.as_str()].as_str(),
+            Some(content.as_str()),
+            "{name} is byte for byte what the app's copy holds"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn a_scene_folders_picture_and_the_pages_are_measured_alike() -> Result<()> {
+    let Some(headless) = headless()? else {
+        return Ok(());
+    };
+    let gl = headless.gl();
+    let caps = Caps::from_info(gl.info());
+    let dir = fixture("media-image");
+    let app = generate(
+        gl,
+        &caps,
+        &SceneFolder::load(&dir)?,
+        &GenerateOptions::default(),
+    )?;
+    let main = std::fs::read_to_string(dir.join("main.glsl"))?;
+    let json = std::fs::read_to_string(dir.join("scene.json"))?;
+    let mark = std::fs::read(dir.join("mark.png"))?;
+    let pairs = [("main.glsl", main.as_str()), ("scene.json", json.as_str())];
+
+    let mut sandbox = Sandbox::new(gl.clone(), SIZE, 48_000);
+    sandbox
+        .generate_start("media-image", files(&pairs), |name: &str| {
+            (name == "mark.png").then(|| mark.clone())
+        })
+        .map_err(|e| anyhow!(e))?;
+    let review = loop {
+        let answer: Value =
+            serde_json::from_str(&sandbox.generate_step().map_err(|e| anyhow!(e))?)?;
+        if answer["state"] == "done" {
+            break answer;
+        }
+    };
+    let mut listed = names(&review);
+    listed.sort();
+    let mut kept = app.report.kept.clone();
+    kept.sort();
+    assert_eq!(listed, kept, "the picture was there for both: {review}");
+    Ok(())
+}
+
+#[test]
+fn generating_between_frames_leaves_the_live_scene_as_it_would_have_been() -> Result<()> {
+    let Some(headless) = headless()? else {
+        return Ok(());
+    };
+    let gl = headless.gl();
+    // Feedback: a live pass whose targets or bindings were disturbed would
+    // carry the damage from frame to frame.
+    let dir = fixture("feedback");
+    let main = std::fs::read_to_string(dir.join("main.glsl"))?;
+    let json = std::fs::read_to_string(dir.join("scene.json"))?;
+    let live = [("main.glsl", main.as_str()), ("scene.json", json.as_str())];
+
+    let play = |generating: bool| -> Result<Vec<u8>> {
+        let mut sandbox = Sandbox::new(gl.clone(), SIZE, 48_000);
+        sandbox
+            .load("feedback", files(&live), no_assets, Vec::new())
+            .map_err(|e| anyhow!(e))?;
+        if generating {
+            sandbox
+                .generate_start("bars", files(&[("main.glsl", BARS)]), no_assets)
+                .map_err(|e| anyhow!(e))?;
+        }
+        for frame in 0..40 {
+            draw(&mut sandbox, frame);
+            if sandbox.generate_running() {
+                sandbox.generate_step().map_err(|e| anyhow!(e))?;
+            }
+        }
+        Ok(sandbox.read_output())
+    };
+    let alone = play(false)?;
+    let beside = play(true)?;
+    assert!(alone.iter().any(|byte| *byte != 0), "the scene draws");
+    assert_eq!(alone, beside, "the same picture, byte for byte");
+    Ok(())
+}
+
+#[test]
+fn cancelling_leaves_the_scene_as_it_was_and_frees_what_was_made() -> Result<()> {
+    let Some(headless) = headless()? else {
+        return Ok(());
+    };
+    let gl = headless.gl();
+    let mut sandbox = Sandbox::new(gl.clone(), SIZE, 48_000);
+    let pairs = [("main.glsl", BARS)];
+    sandbox
+        .load("bars", files(&pairs), no_assets, Vec::new())
+        .map_err(|e| anyhow!(e))?;
+    draw(&mut sandbox, 0);
+    let controls = sandbox.controls_json();
+    let objects = gl.live_objects();
+
+    sandbox
+        .generate_start("bars", files(&pairs), no_assets)
+        .map_err(|e| anyhow!(e))?;
+    for _ in 0..12 {
+        sandbox.generate_step().map_err(|e| anyhow!(e))?;
+    }
+    assert!(
+        sandbox.generate_running(),
+        "still going after a dozen steps"
+    );
+    assert!(
+        gl.live_objects() > objects,
+        "the run holds a compiled scene while it goes"
+    );
+    sandbox.generate_cancel();
+    assert!(!sandbox.generate_running(), "stopped");
+    assert_eq!(gl.live_objects(), objects, "everything it made is gone");
+    assert_eq!(
+        sandbox.controls_json(),
+        controls,
+        "the controls are as they were"
+    );
+    assert!(
+        sandbox.generate_step().is_err(),
+        "a step with nothing running is refused, not a panic"
+    );
+    draw(&mut sandbox, 1);
+    assert!(
+        sandbox.read_output().iter().any(|byte| *byte != 0),
+        "the scene plays on"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_scene_with_controls_keeps_them_and_gets_new_ones_beside_them() -> Result<()> {
+    let Some(headless) = headless()? else {
+        return Ok(());
+    };
+    let shader = "vec4 renderMain() {\n    \
+        float w = sin(_uv.x * 12.0 + TIME * 2.0);\n    \
+        return vec4(vec3(0.9, 0.2, 0.1) * level * (0.5 + 0.5 * w), 1.0);\n}\n";
+    let pairs = [("main.glsl", shader), ("scene.json", SOLID)];
+    let mut sandbox = Sandbox::new(headless.gl().clone(), SIZE, 48_000);
+    sandbox
+        .load("mine", files(&pairs), no_assets, Vec::new())
+        .map_err(|e| anyhow!(e))?;
+    assert_eq!(sandbox.authored_controls(), 1, "a person wrote this one");
+
+    let review = generate_steps(&mut sandbox, &pairs, &mut |_| {})?;
+    assert!(!names(&review).is_empty(), "new controls are proposed");
+    assert!(
+        !names(&review).contains(&"level".to_string()),
+        "under new names: {review}"
+    );
+    let text = sandbox
+        .generate_apply("mine", files(&pairs), &all_kept(&review).to_string())
+        .map_err(|e| anyhow!(e))?;
+    let written: Value = serde_json::from_str(&text)?;
+    let json = written["scene.json"].as_str().unwrap_or("");
+    let main = written["main.glsl"].as_str().unwrap_or("");
+    assert!(
+        json.contains("\"NAME\":\"level\""),
+        "the old one stays: {json}"
+    );
+    let controls = sandbox
+        .load(
+            "mine",
+            files(&[("main.glsl", main), ("scene.json", json)]),
+            no_assets,
+            Vec::new(),
+        )
+        .map_err(|e| anyhow!(e))?;
+    assert!(
+        controls.contains("level"),
+        "it compiles with both: {controls}"
+    );
+    for name in names(&review) {
+        assert!(
+            controls.contains(&name),
+            "{name} is in the panel: {controls}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn a_scene_that_does_not_compile_is_said_not_to_and_nothing_runs_on() -> Result<()> {
+    let Some(headless) = headless()? else {
+        return Ok(());
+    };
+    let mut sandbox = Sandbox::new(headless.gl().clone(), SIZE, 48_000);
+    let pairs = [(
+        "main.glsl",
+        "vec4 renderMain() {\n    return vec4(notDeclared * 2.0, 1.0);\n}\n",
+    )];
+    sandbox
+        .generate_start("broken", files(&pairs), no_assets)
+        .map_err(|e| anyhow!(e))?;
+    let mut failure = None;
+    for _ in 0..50_000_000_u64 {
+        match sandbox.generate_step() {
+            Ok(_) => {}
+            Err(error) => {
+                failure = Some(error);
+                break;
+            }
+        }
+    }
+    let failure = failure.ok_or_else(|| anyhow!("it should have failed"))?;
+    assert!(
+        failure.contains("does not compile") && failure.contains("main.glsl:2"),
+        "it says so, on the person's line: {failure}"
+    );
+    assert!(!sandbox.generate_running(), "the run is over");
+
+    assert!(
+        sandbox
+            .generate_start(
+                "bad",
+                files(&[("main.glsl", BARS), ("scene.json", "{ nope")]),
+                no_assets
+            )
+            .is_err(),
+        "a scene.json that does not parse cannot start"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_scene_where_nothing_matters_proposes_nothing() -> Result<()> {
+    let Some(headless) = headless()? else {
+        return Ok(());
+    };
+    let mut sandbox = Sandbox::new(headless.gl().clone(), SIZE, 48_000);
+    // The number is real and never reaches the picture.
+    let shader = "vec4 renderMain() {\n    \
+        float unused = sin(_uv.x * 7.0);\n    \
+        return vec4(0.0, 0.0, 0.0, 1.0 + unused * 0.0);\n}\n";
+    let review = generate_steps(&mut sandbox, &[("main.glsl", shader)], &mut |_| {})?;
+    assert!(names(&review).is_empty(), "nothing to offer: {review}");
+    assert!(
+        review["kept"].as_array().is_some_and(Vec::is_empty),
+        "an empty list, not a missing one: {review}"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_script_scene_is_measured_with_its_uniforms_declared() -> Result<()> {
+    let Some(headless) = headless()? else {
+        return Ok(());
+    };
+    let mut sandbox = Sandbox::new(headless.gl().clone(), SIZE, 48_000);
+    let shader = "vec4 renderMain() {\n    \
+        float w = sin(_uv.x * 12.0 + pulse);\n    \
+        return vec4(vec3(0.9, 0.2, 0.1) * (0.5 + 0.5 * w), 1.0);\n}\n";
+    let script = "function update(dt) {\n  setUniform(\"pulse\", TIME);\n}\n";
+    let pairs = [("main.glsl", shader), ("script.js", script)];
+    let review = generate_steps(&mut sandbox, &pairs, &mut |_| {})?;
+    assert!(
+        !names(&review).is_empty(),
+        "the shader compiled without its script running: {review}"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_review_drops_renames_and_re_ranges_and_refuses_a_changed_scene() -> Result<()> {
+    let Some(headless) = headless()? else {
+        return Ok(());
+    };
+    let mut sandbox = Sandbox::new(headless.gl().clone(), SIZE, 48_000);
+    let pairs = [("main.glsl", BARS)];
+    let review = generate_steps(&mut sandbox, &pairs, &mut |_| {})?;
+    let kept = review["kept"].as_array().cloned().unwrap_or_default();
+    let slider = kept
+        .iter()
+        .find(|control| control["default"].as_array().is_some_and(|d| d.len() == 1))
+        .ok_or_else(|| anyhow!("a slider among {review}"))?;
+    let choice = json!([{
+        "candidate": slider["candidate"],
+        "name": "wave_amount",
+        "context": slider["context"],
+        "min": 0.5,
+        "max": 40.0,
+    }]);
+    let text = sandbox
+        .generate_apply("scene", files(&pairs), &choice.to_string())
+        .map_err(|e| anyhow!(e))?;
+    let written: Value = serde_json::from_str(&text)?;
+    let json = written["scene.json"].as_str().unwrap_or("");
+    let main = written["main.glsl"].as_str().unwrap_or("");
+    assert!(json.contains("wave_amount"), "the new name: {json}");
+    assert!(json.contains("40"), "the range chosen: {json}");
+    assert_eq!(
+        json.matches("\"NAME\"").count(),
+        1,
+        "only the one kept: {json}"
+    );
+    assert!(main.contains("wave_amount"), "the shader reads it: {main}");
+    assert_eq!(main.lines().count(), BARS.lines().count(), "no line moved");
+    sandbox
+        .load(
+            "scene",
+            files(&[("main.glsl", main), ("scene.json", json)]),
+            no_assets,
+            Vec::new(),
+        )
+        .map_err(|e| anyhow!(e))?;
+
+    let bad_name = json!([{
+        "candidate": slider["candidate"],
+        "name": "not a name",
+        "context": slider["context"],
+        "min": 0.0,
+        "max": 1.0,
+    }]);
+    assert!(
+        sandbox
+            .generate_apply("scene", files(&pairs), &bad_name.to_string())
+            .is_err_and(|e| e.contains("cannot be a control's name")),
+        "a name the scene cannot declare is refused"
+    );
+    let changed = "vec4 renderMain() {\n    return vec4(1.0);\n}\n";
+    assert!(
+        sandbox
+            .generate_apply(
+                "scene",
+                files(&[("main.glsl", changed)]),
+                &choice.to_string()
+            )
+            .is_err_and(|e| e.contains("generate them again")),
+        "a scene changed since it was measured is refused"
     );
     Ok(())
 }

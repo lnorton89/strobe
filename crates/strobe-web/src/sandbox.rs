@@ -36,9 +36,18 @@
 //!   64x36 readback (D162), which the page hands to the worker. Presets are
 //!   `presets/<name>.json` files, captured and applied by
 //!   `strobe_scene::preset` as the app's are.
+//! - **Generating controls runs between frames** (D558). The app measures a
+//!   scene in a worker process; a tab has one context and no worker. So
+//!   [`Sandbox::generate_start`] makes a [`Job`] and the page calls
+//!   [`Sandbox::generate_step`] once per animation frame, drawing the live
+//!   scene as usual around it. A proposal comes back as data and changes
+//!   nothing: [`Sandbox::generate_apply`] returns the rewritten files for
+//!   the page to put in its editor, where they autosave, share and export
+//!   like any edit.
 
 use serde_json::{Value, json};
 use strobe_audio::analyzer::Analyzer;
+use strobe_autocontrol::{Choice, Job, Options as GenerateOptions, Phase, images_from};
 use strobe_gfx::gl::Gl;
 use strobe_gfx::{AudioTextures, Caps, FrameInputs, Mouse, Options, ScenePlayer};
 use strobe_scene::assemble::ExtraType;
@@ -167,6 +176,21 @@ pub struct Sandbox {
     size: [i32; 2],
     scene: Option<Loaded>,
     audio: Audio,
+    /// A Generate controls in progress. Dropping it cancels it.
+    generating: Option<Job>,
+}
+
+/// How the sandbox measures: exactly as the app does, so the same scene
+/// gets the same controls in both (D126, D558). The renders are small, so a
+/// probe is cheaper than a frame of the canvas. A scene with controls keeps
+/// them and gets new ones beside them, as "Add generated controls" does in
+/// the app (D202); the page offers that wording, and a person pressing the
+/// button has asked for it.
+fn generate_options() -> GenerateOptions {
+    GenerateOptions {
+        merge: true,
+        ..GenerateOptions::default()
+    }
 }
 
 impl Sandbox {
@@ -179,6 +203,7 @@ impl Sandbox {
             size: clamp_size(size),
             scene: None,
             audio: Audio::new(sample_rate),
+            generating: None,
         }
     }
 
@@ -442,6 +467,109 @@ impl Sandbox {
         &self.audio.scalars
     }
 
+    /// How many controls of the loaded scene a person wrote: the five
+    /// "Strobe" ones of an import do not count (D126). The page words its
+    /// button by it, as the app does.
+    pub fn authored_controls(&self) -> usize {
+        self.scene.as_ref().map_or(0, |scene| {
+            scene
+                .controls
+                .defs()
+                .iter()
+                .filter(|def| strobe_autocontrol::is_authored(def))
+                .count()
+        })
+    }
+
+    /// Starts generating controls for the scene in `file`, the editor's
+    /// files as they are now (not the last compile). No GL work happens
+    /// here. One already running is dropped. Returns the first progress as
+    /// JSON (see [`Self::generate_step`]), or the reason it cannot start.
+    pub fn generate_start(
+        &mut self,
+        title: &str,
+        file: impl Fn(&str) -> Option<String>,
+        asset: impl Fn(&str) -> Option<Vec<u8>>,
+    ) -> Result<String, String> {
+        self.generating = None;
+        let folder = SceneFolder::from_files(title, file).map_err(|e| e.to_string())?;
+        let images = images_from(&folder, asset);
+        let job = Job::new(&self.gl, &self.caps, &folder, &generate_options())
+            .map_err(|e| e.to_string())?
+            .with_images(images);
+        let progress = progress_json(&job);
+        self.generating = Some(job);
+        Ok(progress)
+    }
+
+    /// Does one piece of the work. Returns JSON: while it runs,
+    /// `{"state":"running","phase":"scoring","done":3,"total":12}`; at the
+    /// end `{"state":"done",...}` with the controls proposed, strongest
+    /// first, and nothing changed. An error ends the run and is returned as
+    /// its text.
+    pub fn generate_step(&mut self) -> Result<String, String> {
+        let job = self.generating.as_mut().ok_or("no generation is running")?;
+        match job.step() {
+            Ok(None) => Ok(progress_json(job)),
+            Ok(Some(generated)) => {
+                self.generating = None;
+                let report = &generated.report;
+                Ok(json!({
+                    "state": "done",
+                    "scene": report.scene,
+                    "candidates": report.candidates.len(),
+                    "fidelity": report.fidelity,
+                    "kept": report.kept_controls(),
+                    "suggestions": report.suggestion_lines(),
+                })
+                .to_string())
+            }
+            Err(error) => {
+                self.generating = None;
+                Err(error.to_string())
+            }
+        }
+    }
+
+    /// Whether a generation is running.
+    pub fn generate_running(&self) -> bool {
+        self.generating.is_some()
+    }
+
+    /// Stops a generation and frees everything it made. Nothing it did
+    /// reached the scene, so there is nothing else to undo.
+    pub fn generate_cancel(&mut self) {
+        self.generating = None;
+    }
+
+    /// The scene in `file` with the controls a person kept in the review:
+    /// `choices` is a JSON array of `{candidate, name, context, min, max}`.
+    /// Returns a JSON object of file name to new text, for the page's editor.
+    /// No GL and no measuring (D219): the analysis finds the candidates
+    /// again, and a scene that no longer reads as measured is refused. The
+    /// loaded scene is not touched; it plays until the page compiles those
+    /// files.
+    pub fn generate_apply(
+        &self,
+        title: &str,
+        file: impl Fn(&str) -> Option<String>,
+        choices: &str,
+    ) -> Result<String, String> {
+        let choices: Vec<Choice> =
+            serde_json::from_str(choices).map_err(|e| format!("the review: {e}"))?;
+        let scene_json = file("scene.json");
+        let folder = SceneFolder::from_files(title, file).map_err(|e| e.to_string())?;
+        let generated =
+            strobe_autocontrol::rewrite_chosen(&folder, &choices).map_err(|e| e.to_string())?;
+        let files = strobe_autocontrol::rewritten_files(&generated, scene_json.as_deref())
+            .map_err(|e| e.to_string())?;
+        let map: serde_json::Map<String, Value> = files
+            .into_iter()
+            .map(|(name, text)| (name, Value::String(text)))
+            .collect();
+        Ok(Value::Object(map).to_string())
+    }
+
     /// Resizes the canvas's picture. A failure keeps the old size.
     pub fn resize(&mut self, size: [i32; 2]) -> Result<(), String> {
         let size = clamp_size(size);
@@ -510,6 +638,23 @@ impl Sandbox {
             .as_ref()
             .map_or(self.size, |scene| scene.player.render_size())
     }
+}
+
+/// A running job's progress, as JSON.
+fn progress_json(job: &Job) -> String {
+    let progress = job.progress();
+    let phase = match progress.phase {
+        Phase::Preparing => "preparing",
+        Phase::Scoring => "scoring",
+        Phase::Checking => "checking",
+    };
+    json!({
+        "state": "running",
+        "phase": phase,
+        "done": progress.done,
+        "total": progress.total,
+    })
+    .to_string()
 }
 
 /// Uploads each `IMAGES` picture the page holds, by the entry's path or,

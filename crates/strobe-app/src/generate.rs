@@ -41,7 +41,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime};
-use strobe_autocontrol::report::Verdict;
+pub use strobe_autocontrol::report::Kept;
 use strobe_autocontrol::{Options, authored_controls, generate, write_scene};
 use strobe_gfx::offscreen::{self, ContextMode, Request};
 use strobe_scene::SceneFolder;
@@ -58,31 +58,6 @@ static NEXT_REPORT: AtomicU64 = AtomicU64::new(0);
 
 /// The suffix every generated scene folder carries ([`write_scene`]).
 const GENERATED_SUFFIX: &str = "-auto.synScene";
-
-/// One generated control, as the review shows it.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Kept {
-    /// The candidate's id in the engine's analysis, for a review to name it
-    /// again (D219).
-    #[serde(default)]
-    pub candidate: usize,
-    /// The control's name.
-    pub name: String,
-    /// The group it is listed in.
-    pub group: String,
-    /// What the literal was doing (`colour`, `time scale`...).
-    pub kind: String,
-    /// The original value, which is the control's default.
-    pub default: Vec<f32>,
-    /// Lower bound.
-    pub min: Vec<f32>,
-    /// Upper bound.
-    pub max: Vec<f32>,
-    /// How much the picture moved when it was nudged, `0..1`.
-    pub score: Option<f32>,
-    /// The line of code it came from.
-    pub context: String,
-}
 
 /// What a worker reports.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -188,39 +163,6 @@ fn run_worker(args: &WorkerArgs) -> Result<Summary, String> {
         )
     };
     let report = &generated.report;
-    let mut kept: Vec<(usize, Kept)> = report
-        .candidates
-        .iter()
-        .filter_map(|c| match (&c.verdict, &c.name) {
-            (Verdict::Kept { rank }, Some(name)) => Some((
-                *rank,
-                Kept {
-                    candidate: c.id,
-                    name: name.clone(),
-                    group: c.group.ui_name().to_owned(),
-                    kind: c.kind.label().to_owned(),
-                    default: c.default.clone(),
-                    min: c.min.clone(),
-                    max: c.max.clone(),
-                    score: c.score,
-                    context: c.context.trim().to_owned(),
-                },
-            )),
-            (
-                Verdict::Kept { .. }
-                | Verdict::Cut { .. }
-                | Verdict::Weak { .. }
-                | Verdict::QualityLimit { .. }
-                | Verdict::Unfaithful { .. }
-                | Verdict::Dead
-                | Verdict::Broken { .. }
-                | Verdict::DoesNotCompile { .. }
-                | Verdict::NotScored,
-                _,
-            ) => None,
-        })
-        .collect();
-    kept.sort_by_key(|(rank, _)| *rank);
     Ok(Summary {
         scene: report.scene.clone(),
         source: args.scene.clone(),
@@ -228,12 +170,8 @@ fn run_worker(args: &WorkerArgs) -> Result<Summary, String> {
         context,
         candidates: report.candidates.len(),
         fidelity: report.fidelity,
-        kept: kept.into_iter().map(|(_, k)| k).collect(),
-        suggestions: report
-            .suggestions
-            .iter()
-            .map(|s| format!("{} with {}: {}", s.control, s.band, s.reason))
-            .collect(),
+        kept: report.kept_controls(),
+        suggestions: report.suggestion_lines(),
     })
 }
 

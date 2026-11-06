@@ -89,6 +89,10 @@ pub struct Gl {
     /// clone. Counted by the query leaves themselves, so a test can prove
     /// that a playing scene asks the driver nothing (D497).
     queries: Rc<Cell<u64>>,
+    /// How many GL objects this context holds; shared by every clone. A
+    /// plain counter (no driver query), so a test can prove that cancelled
+    /// work left nothing behind (D558).
+    objects: Rc<Cell<i64>>,
     /// The opt-in record of framebuffer traffic (`STROBE_GL_TRACE`); shared
     /// by every clone. See [`trace`].
     trace: Rc<trace::Trace>,
@@ -435,12 +439,13 @@ impl Gl {
         )
     )]
     fn from_glow(raw: glow::Context, reset: Option<ResetAddress>) -> Self {
-        // A browser exposes the extension only once it is enabled through
-        // WebGL, so the sandbox keeps the blocking path.
-        let parallel = !cfg!(target_arch = "wasm32") && {
+        // WebGL names its extensions without the `GL_` prefix, and glow
+        // enables the extension as it wraps the context (D558).
+        let parallel = {
             let extensions = raw.supported_extensions();
             extensions.contains("GL_KHR_parallel_shader_compile")
                 || extensions.contains("GL_ARB_parallel_shader_compile")
+                || extensions.contains("KHR_parallel_shader_compile")
         };
         let gl = Self {
             raw: Arc::new(raw),
@@ -448,6 +453,7 @@ impl Gl {
             lost: Rc::new(Cell::new(false)),
             compiles: Rc::new(Cell::new(0)),
             queries: Rc::new(Cell::new(0)),
+            objects: Rc::new(Cell::new(0)),
             trace: Rc::new(trace::Trace::from_env()),
             parallel,
             _thread: PhantomData,
@@ -512,6 +518,13 @@ impl Gl {
     /// module docs.
     pub fn state_queries(&self) -> u64 {
         self.queries.get()
+    }
+
+    /// How many GL objects this context holds right now, counted by the
+    /// leaves that create and delete them: every kind an owning type here
+    /// holds. A test's way to see that dropped work left nothing behind.
+    pub fn live_objects(&self) -> i64 {
+        self.objects.get()
     }
 
     /// Counts one driver state query. Every leaf that makes one calls this
@@ -597,7 +610,8 @@ impl Gl {
             // threads, polled with `COMPLETION_STATUS_KHR` instead of
             // waited on (G-08, D555). ANGLE exposes the KHR name.
             parallel_compile: extensions.contains("GL_KHR_parallel_shader_compile")
-                || extensions.contains("GL_ARB_parallel_shader_compile"),
+                || extensions.contains("GL_ARB_parallel_shader_compile")
+                || extensions.contains("KHR_parallel_shader_compile"),
         }
     }
 
@@ -865,7 +879,11 @@ impl Gl {
 
     fn create_shader(&self, stage: Stage) -> Result<glow::Shader, String> {
         // SAFETY: current-context invariant.
-        unsafe { self.raw.create_shader(stage.raw()) }
+        let made = unsafe { self.raw.create_shader(stage.raw()) };
+        if made.is_ok() {
+            self.objects.set(self.objects.get() + 1);
+        }
+        made
     }
 
     fn shader_source(&self, shader: glow::Shader, source: &str) {
@@ -893,6 +911,7 @@ impl Gl {
     }
 
     fn delete_shader(&self, shader: glow::Shader) {
+        self.objects.set(self.objects.get() - 1);
         // SAFETY: current-context invariant; called once, from Shader::drop.
         unsafe { self.raw.delete_shader(shader) }
     }
@@ -919,7 +938,11 @@ impl Gl {
 
     fn create_program(&self) -> Result<glow::Program, String> {
         // SAFETY: current-context invariant.
-        unsafe { self.raw.create_program() }
+        let made = unsafe { self.raw.create_program() };
+        if made.is_ok() {
+            self.objects.set(self.objects.get() + 1);
+        }
+        made
     }
 
     fn attach(&self, program: glow::Program, shader: glow::Shader) {
@@ -950,6 +973,7 @@ impl Gl {
     }
 
     fn delete_program(&self, program: glow::Program) {
+        self.objects.set(self.objects.get() - 1);
         // SAFETY: current-context invariant; called once, from Program::drop.
         unsafe { self.raw.delete_program(program) }
     }
@@ -1215,7 +1239,11 @@ impl Gl {
 
     fn create_texture(&self) -> Result<glow::Texture, String> {
         // SAFETY: current-context invariant.
-        unsafe { self.raw.create_texture() }
+        let made = unsafe { self.raw.create_texture() };
+        if made.is_ok() {
+            self.objects.set(self.objects.get() + 1);
+        }
+        made
     }
 
     fn bind_texture(&self, target: u32, texture: Option<glow::Texture>) {
@@ -1323,6 +1351,7 @@ impl Gl {
     }
 
     fn delete_texture(&self, texture: glow::Texture) {
+        self.objects.set(self.objects.get() - 1);
         // SAFETY: current-context invariant; called once, from Texture::drop.
         unsafe { self.raw.delete_texture(texture) }
     }
@@ -1349,7 +1378,11 @@ impl Gl {
 
     fn create_framebuffer(&self) -> Result<glow::Framebuffer, String> {
         // SAFETY: current-context invariant.
-        unsafe { self.raw.create_framebuffer() }
+        let made = unsafe { self.raw.create_framebuffer() };
+        if made.is_ok() {
+            self.objects.set(self.objects.get() + 1);
+        }
+        made
     }
 
     fn bind_raw_framebuffer(&self, target: u32, fbo: Option<glow::Framebuffer>) {
@@ -1494,6 +1527,7 @@ impl Gl {
     }
 
     fn delete_framebuffer(&self, fbo: glow::Framebuffer) {
+        self.objects.set(self.objects.get() - 1);
         // SAFETY: current-context invariant; called once, from
         // Framebuffer::drop.
         unsafe { self.raw.delete_framebuffer(fbo) }
@@ -1513,7 +1547,11 @@ impl Gl {
 
     fn create_query(&self) -> Result<glow::Query, String> {
         // SAFETY: current-context invariant.
-        unsafe { self.raw.create_query() }
+        let made = unsafe { self.raw.create_query() };
+        if made.is_ok() {
+            self.objects.set(self.objects.get() + 1);
+        }
+        made
     }
 
     /// Starts timing GPU work with `query`; only one may be active.
@@ -1574,6 +1612,7 @@ impl Gl {
     }
 
     fn delete_query(&self, query: glow::Query) {
+        self.objects.set(self.objects.get() - 1);
         // SAFETY: current-context invariant; called once, from
         // TimerQuery::drop.
         unsafe { self.raw.delete_query(query) }
@@ -1614,7 +1653,11 @@ impl Gl {
 
     fn create_buffer(&self) -> Result<glow::Buffer, String> {
         // SAFETY: current-context invariant.
-        unsafe { self.raw.create_buffer() }
+        let made = unsafe { self.raw.create_buffer() };
+        if made.is_ok() {
+            self.objects.set(self.objects.get() + 1);
+        }
+        made
     }
 
     fn bind_raw_buffer(&self, target: u32, buffer: Option<glow::Buffer>) {
@@ -1630,6 +1673,7 @@ impl Gl {
     }
 
     fn delete_buffer(&self, buffer: glow::Buffer) {
+        self.objects.set(self.objects.get() - 1);
         // SAFETY: current-context invariant; called once, from Buffer::drop.
         unsafe { self.raw.delete_buffer(buffer) }
     }
@@ -1720,7 +1764,11 @@ impl Gl {
 
     fn create_fence(&self) -> Result<glow::Fence, String> {
         // SAFETY: current-context invariant.
-        unsafe { self.raw.fence_sync(glow::SYNC_GPU_COMMANDS_COMPLETE, 0) }
+        let made = unsafe { self.raw.fence_sync(glow::SYNC_GPU_COMMANDS_COMPLETE, 0) };
+        if made.is_ok() {
+            self.objects.set(self.objects.get() + 1);
+        }
+        made
     }
 
     /// Whether `fence` has signalled. A zero-timeout poll: it never waits.
@@ -1744,6 +1792,7 @@ impl Gl {
     }
 
     fn delete_fence(&self, fence: glow::Fence) {
+        self.objects.set(self.objects.get() - 1);
         // SAFETY: current-context invariant; called once, from Fence::drop.
         unsafe { self.raw.delete_sync(fence) }
     }
@@ -1830,7 +1879,11 @@ impl Gl {
 
     fn create_vertex_array(&self) -> Result<glow::VertexArray, String> {
         // SAFETY: current-context invariant.
-        unsafe { self.raw.create_vertex_array() }
+        let made = unsafe { self.raw.create_vertex_array() };
+        if made.is_ok() {
+            self.objects.set(self.objects.get() + 1);
+        }
+        made
     }
 
     /// Binds `vao`.
@@ -1845,6 +1898,7 @@ impl Gl {
     }
 
     fn delete_vertex_array(&self, vao: glow::VertexArray) {
+        self.objects.set(self.objects.get() - 1);
         // SAFETY: current-context invariant; called once, from
         // VertexArray::drop.
         unsafe { self.raw.delete_vertex_array(vao) }

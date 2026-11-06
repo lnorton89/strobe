@@ -3690,6 +3690,7 @@ dependencies = [
  "log",
  "serde_json",
  "strobe-audio",
+ "strobe-autocontrol",
  "strobe-gfx",
  "strobe-scene",
  "wasm-bindgen",

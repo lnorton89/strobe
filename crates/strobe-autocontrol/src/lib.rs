@@ -33,7 +33,9 @@
 //! - [`script`] reads `script.js` for the uniforms it creates, so a
 //!   scripted scene compiles without running its script (D259).
 //! - [`mod@generate`] runs all of it and returns a [`report::Report`] plus the
-//!   rewritten scene; [`output`] writes that as a new scene folder.
+//!   rewritten scene, either in one call or as a [`Job`] a step at a time
+//!   for a page that must keep drawing (D558); [`output`] writes that as a
+//!   new scene folder, or returns its files for a host with no disk.
 //! - [`suggest`] proposes audio mappings for the strongest controls.
 //!
 //! Everything is deterministic: fixed frames, fixed times, the seeded
@@ -57,9 +59,9 @@ pub mod suggest;
 pub use analyze::{Analysis, analyze};
 pub use candidate::{Candidate, Group, Kind, Site, ValueType};
 pub use generate::{
-    Choice, ChoiceError, FIDELITY_LIMIT, GenerateError, Generated, Options, authored_controls,
-    generate, generate_from, is_authored, rewrite_chosen,
+    Choice, ChoiceError, FIDELITY_LIMIT, GenerateError, Generated, Job, Options, Phase, Progress,
+    authored_controls, generate, generate_from, images_from, is_authored, rewrite_chosen,
 };
-pub use output::{OutputError, write_scene};
-pub use report::Report;
+pub use output::{OutputError, rewritten_files, write_scene};
+pub use report::{Kept, Report};
 pub use score::ScoreOptions;
