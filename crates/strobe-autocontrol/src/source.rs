@@ -3,7 +3,7 @@
 // Description:  A scene's GLSL files as editable text, and a positioned token
 //               view of one file: byte offsets, nesting depth, scannable regions.
 //
-// Dependencies: strobe-scene (SceneFolder), strobe-shadertoy (tokenizer, markers)
+// Dependencies: strobe-scene (SceneFolder, tokenizer, markers)
 // ============================================================================
 
 //! Source files and the scan view over one of them.
@@ -14,7 +14,7 @@
 //! will look for it.
 //!
 //! [`Scan`] is the view the analysis works on. It runs
-//! `strobe_shadertoy::glsl::lex` (the lossless tokenizer) and adds what the
+//! `strobe_scene::glsl::lex` (the lossless tokenizer) and adds what the
 //! tokenizer leaves out: each token's byte offset, the brace and
 //! parenthesis depth it sits at, and the **regions** that hold author code.
 //! A converted Shadertoy pass file is a generated shim, then the author's
@@ -24,9 +24,10 @@
 
 use std::collections::BTreeMap;
 use strobe_scene::SceneFolder;
+use strobe_scene::glsl::{
+    self, CLOCK_MARKER, ENTRY_MARKER, Kind, TAB_MARKER_PREFIX, TAB_MARKER_SUFFIX,
+};
 use strobe_scene::load::MAIN_SHADER;
-use strobe_shadertoy::convert::{CLOCK_MARKER, ENTRY_MARKER, TAB_MARKER_PREFIX, TAB_MARKER_SUFFIX};
-use strobe_shadertoy::glsl::{self, Kind};
 
 /// A scene's distinct GLSL files, by the name `scene.json` uses.
 #[derive(Debug, Clone, PartialEq, Eq)]

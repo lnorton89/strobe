@@ -26,7 +26,7 @@
 
 use crate::source::Scan;
 use std::collections::BTreeSet;
-use strobe_shadertoy::glsl::{self, Kind};
+use strobe_scene::glsl::{self, Kind};
 
 /// Which spelling the constant was declared with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

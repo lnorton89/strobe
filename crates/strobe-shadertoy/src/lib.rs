@@ -51,7 +51,6 @@
 pub mod acquire;
 pub mod convert;
 pub mod dialect;
-pub mod glsl;
 pub mod id;
 pub mod import;
 pub mod listener;
@@ -60,3 +59,6 @@ pub mod model;
 pub use convert::{Converted, Options, convert};
 pub use id::{IdError, ShaderId};
 pub use model::{ModelError, Shader};
+/// The tokenizer the converter leans on, which lives with the scene model so
+/// the browser build can read GLSL without the importer (D558).
+pub use strobe_scene::glsl;

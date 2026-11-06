@@ -22,8 +22,8 @@
 use crate::source::Sources;
 use std::collections::BTreeSet;
 use strobe_scene::SceneFolder;
+use strobe_scene::glsl;
 use strobe_scene::names::{is_glsl_identifier, is_reserved, normalize};
-use strobe_shadertoy::glsl;
 
 /// GLSL keywords, reserved words and built-ins a uniform must not be
 /// called.

@@ -26,7 +26,7 @@ use super::context::{
 use crate::candidate::{Group, Kind, Rewrite, ValueType};
 use crate::naming::{is_glsl_word, readable};
 use crate::source::Scan;
-use strobe_shadertoy::glsl::{self, Kind as TokKind};
+use strobe_scene::glsl::{self, Kind as TokKind};
 
 /// Identifiers that mean "the scene clock".
 const TIME_IDENTS: [&str; 2] = ["TIME", "iTime"];

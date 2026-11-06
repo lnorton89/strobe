@@ -77,21 +77,7 @@ use std::fmt;
 
 pub use write::{WriteError, write};
 
-/// The comment line that opens each Shadertoy tab in a pass file, up to the
-/// tab's name: `// ---- Shadertoy tab: Image ----`.
-///
-/// A pass file is generated shim, then these tabs, then a generated entry
-/// point. A tool that reads the author's code (auto-generated controls)
-/// finds it between these markers and leaves the rest alone, so the
-/// markers are public and the shim writer uses the same constants.
-pub const TAB_MARKER_PREFIX: &str = "// ---- Shadertoy tab: ";
-
-/// What follows the tab's name on the marker line.
-pub const TAB_MARKER_SUFFIX: &str = " ----";
-
-/// The comment line that ends the author's code: the generated
-/// `renderMain` follows it.
-pub const ENTRY_MARKER: &str = "// ---- Strobe entry (generated) ----";
+pub use strobe_scene::glsl::{CLOCK_MARKER, ENTRY_MARKER, TAB_MARKER_PREFIX, TAB_MARKER_SUFFIX};
 
 /// The rate an imported scene's clock runs at, the CPU twin of the clock
 /// pass's `strobe_rate()`: `st_speed * mix(1, 0.3 + 2 * bass,
@@ -114,9 +100,6 @@ pub fn clock_rate(controls: &strobe_scene::control::ControlBank, bass: f32) -> O
     let bass_pace = shim::BASS_FLOOR + shim::BASS_GAIN * bass;
     Some(speed * (1.0 + (bass_pace - 1.0) * audio_time))
 }
-
-/// The first line of the clock pass file, which holds no author code.
-pub const CLOCK_MARKER: &str = "// ---- Strobe clock pass (generated) ----";
 
 /// A 1x1 black PNG, bound to channels with nothing to show.
 const BLACK_PNG: [u8; 70] = [
