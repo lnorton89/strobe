@@ -71,9 +71,10 @@ block fails the build rather than rendering an empty section.
   it needs no GPU. `npm run browser` installs the headless Chromium it runs
   in. It runs one worker at a time, since software rendering shares the CPU and
   measuring a scene is the slowest thing the page does.
-  `play-generate.spec.ts` covers Generate controls (D558): a library scene
-  with no controls through progress, review, accept and undo, then cancel and
-  the scenes it must refuse or leave alone.
+  `play-generate.spec.ts` covers Generate controls (D558): the library's scene
+  with no controls through progress and Cancel, a lighter scene with its
+  controls baked in through review, accept and undo, then the scenes it must
+  refuse or leave alone.
 
 ## In CI
 
