@@ -4,8 +4,7 @@
 
 # Strobe
 
-**Live visuals that move with the music, for projectors, LED walls and old
-laptops.**
+**A VJ engine for audio-reactive GLSL scenes.**
 
 </div>
 
@@ -15,11 +14,11 @@ animated graphics that pulse, swirl and change with the beat. You choose
 the visuals, tweak them live with sliders or a MIDI controller, and line
 them up into a show that runs for hours on its own.
 
-It is free and source-available, written in Rust, and built to run well on the
-kind of old Windows laptop a small venue actually has.
+It is free and source-available, written in Rust, and draws through OpenGL
+3.3, with ANGLE on Direct3D 11 for machines whose GL driver fails.
 
 > **Status: for testing, not yet for production.**
-> Everything below is built and tested. Windows is the target and has been
+> Everything below is built. Windows is the target and has been
 > checked on four real machines: a ThinkPad T480 (Intel UHD 620), desktops
 > with a GTX 1080 Ti and an RX 580, and a venue mini-PC (Ryzen 3 3200U,
 > Vega 3) driving a projector. Linux builds and runs, on X11 and Wayland,
@@ -64,7 +63,8 @@ there are thousands of visuals it can play:
   your music.
 
 **Who it is for:**
-- a DJ, band or venue that wants visuals without a powerful computer;
+- a DJ, band or venue that wants visuals on a projector or LED wall from a
+  laptop or mini-PC;
 - a VJ running long nights who wants a show to play itself, with a hand on
   the controls when it matters;
 - Synesthesia users who want their scenes on more machines;
@@ -167,9 +167,15 @@ worker process, so the show keeps playing.
 - **Venue mode:** a trust file lets a laptop drive the show machine and
   reconnect by itself.
 
-**Stays up on bad hardware.**
-- **The floor is OpenGL 3.3**, roughly a 2012 Intel HD 4000.
-- **Adaptive resolution** keeps heavy scenes at the display's frame rate.
+**Performance and failure.**
+- **The floor is OpenGL 3.3 core**, the level of a 2012 Intel HD 4000. The
+  slowest GPUs measured so far are an Intel UHD 620 and an AMD Vega 3; no
+  HD 4000 has been tested yet.
+- **The frame loop does not wait.** Audio, MIDI, OSC and the remote run on
+  workers behind bounded queues, and per-frame paths neither allocate nor
+  query the driver.
+- **Adaptive resolution** lowers the render scale when a scene goes over its
+  frame budget, or when frames keep missing the display's refresh.
 - **ANGLE fallback:** when the native GL driver fails, Strobe uses ANGLE
   (OpenGL ES on Direct3D 11). `--gl angle-vulkan` (or `angle-gl`) runs ANGLE
   on another of its backends.

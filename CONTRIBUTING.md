@@ -1,7 +1,7 @@
 # Contributing to Strobe
 
 Strobe is a Synesthesia-style VJ engine in Rust: a GL renderer for
-audio-reactive GLSL scenes, built to run well on old laptops.
+audio-reactive GLSL scenes, with an OpenGL 3.3 floor.
 
 Start with [`CLAUDE.md`](CLAUDE.md), which covers the commands, the
 rules the build enforces, and the map of planning docs. Then read
