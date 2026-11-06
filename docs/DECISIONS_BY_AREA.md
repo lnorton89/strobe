@@ -98,7 +98,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-autocontrol
 
-10 decision(s).
+11 decision(s).
 
 - [D123](decisions/D123.md): auto-generated controls are their own crate, `strobe-autocontrol`
 - [D140](decisions/D140.md): the offscreen context runner lives in strobe-gfx, and auto-controls use it
@@ -110,6 +110,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D330](decisions/D330.md): the synthetic track's clocks are integrals of their rates, smooth four hours in
 - [D415](decisions/D415.md): `iChannelTime` and `iChannelResolution` are array constructors, so a global sees them
 - [D485](decisions/D485.md): `--gl angle-*` chooses ANGLE's backend, and checks it got it
+- [D558](decisions/D558.md): the sandbox generates controls a step per animation frame, on the app's own engine and settings
 
 ## strobe-bench
 
@@ -162,7 +163,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-diag
 
-18 decision(s).
+19 decision(s).
 
 - [D40](decisions/D40.md): our own `log` backend in `strobe-diag`, not tracing or env_logger
 - [D41](decisions/D41.md): unsafe is allowed in exactly one `strobe-diag` file
@@ -182,10 +183,11 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D528](decisions/D528.md): a webcam is a media choice, `camera:<name>`, captured by `strobe-capture`
 - [D541](decisions/D541.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
 - [D556](decisions/D556.md): the computer and display stay awake while the output is fullscreen
+- [D558](decisions/D558.md): the sandbox generates controls a step per animation frame, on the app's own engine and settings
 
 ## strobe-gfx
 
-43 decision(s).
+44 decision(s).
 
 - [D40](decisions/D40.md): our own `log` backend in `strobe-diag`, not tracing or env_logger
 - [D41](decisions/D41.md): unsafe is allowed in exactly one `strobe-diag` file
@@ -230,6 +232,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D544](decisions/D544.md): what the audit work had skipped: a static C runtime, the imports and the loaded ANGLE checked, the browser engine built, generators that reach the code, and a changelog that can be corrected
 - [D552](decisions/D552.md): the website and its wasm engine are built and played in CI, as a lane of their own
 - [D553](decisions/D553.md): Shadertoy cube-map inputs become scene cube maps, the keyboard is 256x3 with every key up, and the Needs-work bin is closed
+- [D558](decisions/D558.md): the sandbox generates controls a step per animation frame, on the app's own engine and settings
 
 ## strobe-io
 
@@ -291,7 +294,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-scene
 
-29 decision(s).
+30 decision(s).
 
 - [D61](decisions/D61.md): audio is the app's, started on a thread, falls back to synthetic by capture state
 - [D73](decisions/D73.md): the playlist model is authored data, resolved once into a flat view
@@ -322,10 +325,11 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D552](decisions/D552.md): the website and its wasm engine are built and played in CI, as a lane of their own
 - [D553](decisions/D553.md): Shadertoy cube-map inputs become scene cube maps, the keyboard is 256x3 with every key up, and the Needs-work bin is closed
 - [D554](decisions/D554.md): the sandbox's scene is its files: pictures added, includes resolved, the picture read back, presets as files
+- [D558](decisions/D558.md): the sandbox generates controls a step per animation frame, on the app's own engine and settings
 
 ## strobe-script
 
-14 decision(s).
+15 decision(s).
 
 - [D62](decisions/D62.md): script uniforms are compiled in at load, from the script's first frame
 - [D63](decisions/D63.md): the Windows cross-check from Linux now excludes `strobe-app` too
@@ -341,10 +345,11 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D413](decisions/D413.md): a promise rejection nobody handles is a console error, once per reason
 - [D414](decisions/D414.md): an event callback may be a `let`/`const` function or the function itself
 - [D554](decisions/D554.md): the sandbox's scene is its files: pictures added, includes resolved, the picture read back, presets as files
+- [D558](decisions/D558.md): the sandbox generates controls a step per animation frame, on the app's own engine and settings
 
 ## strobe-shadertoy
 
-17 decision(s).
+18 decision(s).
 
 - [D94](decisions/D94.md): dialect normalisation is token-level, dialect-neutral, and stops where types begin
 - [D110](decisions/D110.md): the HTTP client is ureq with rustls and compiled-in roots, behind a `net` feature
@@ -363,6 +368,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D539](decisions/D539.md): property tests over untrusted input, weekly machete and coverage, and the decisions indexed by crate
 - [D541](decisions/D541.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
 - [D553](decisions/D553.md): Shadertoy cube-map inputs become scene cube maps, the keyboard is 256x3 with every key up, and the Needs-work bin is closed
+- [D558](decisions/D558.md): the sandbox generates controls a step per animation frame, on the app's own engine and settings
 
 ## strobe-ssf-lib
 
@@ -374,12 +380,13 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-web
 
-4 decision(s).
+5 decision(s).
 
 - [D524](decisions/D524.md): the website's `/play` sandbox runs Strobe's own player as wasm on WebGL2, scripts in a worker, with no server
 - [D544](decisions/D544.md): what the audit work had skipped: a static C runtime, the imports and the loaded ANGLE checked, the browser engine built, generators that reach the code, and a changelog that can be corrected
 - [D552](decisions/D552.md): the website and its wasm engine are built and played in CI, as a lane of their own
 - [D554](decisions/D554.md): the sandbox's scene is its files: pictures added, includes resolved, the picture read back, presets as files
+- [D558](decisions/D558.md): the sandbox generates controls a step per animation frame, on the app's own engine and settings
 
 ## xtask
 

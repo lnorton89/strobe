@@ -31,7 +31,8 @@ export default async function PlayPage() {
             Strobe&apos;s own scene player, compiled to WebAssembly and drawing on WebGL2, so a
             scene and its errors behave as they do in the app. Pick a scene from Open, or edit
             the shader and it recompiles as you type. A synthetic 120 BPM track drives the audio
-            until you choose your microphone or a file.
+            until you choose your microphone or a file. Generate controls measures the numbers
+            in a shader, as the app does, and proposes the ones that change the picture.
           </p>
           <p>
             Your scene saves itself in this browser, and nothing leaves it unless you press

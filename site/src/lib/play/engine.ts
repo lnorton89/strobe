@@ -15,6 +15,20 @@ export interface Engine {
     assets: Record<string, Uint8Array>,
     extras: string,
   ): string;
+  /** How many of the loaded scene's controls a person wrote. */
+  authoredControls(): number;
+  /** Starts generating controls for these files; the first progress, as JSON. */
+  generateStart(
+    title: string,
+    files: Record<string, string>,
+    assets: Record<string, Uint8Array>,
+  ): string;
+  /** One piece of the work: progress or the proposal, as JSON. Throws what ended it. */
+  generateStep(): string;
+  /** Stops a generation and frees what it made. */
+  generateCancel(): void;
+  /** The changed files for the controls kept in a review, as a JSON object. */
+  generateApply(title: string, files: Record<string, string>, choices: string): string;
   /** What the scene names that is not here, as a JSON array of lines. */
   notesJson(): string;
   readsFinalPass(): boolean;

@@ -16,14 +16,18 @@ anywhere. The same scene always gives the same controls (D126).
 
 ## Role in the workspace
 
-- **Depends on:** `strobe-scene` (control model, name rules, `SceneFolder`),
-  `strobe-shadertoy` (the lossless `glsl` tokenizer and the converter's
-  tab-marker constants only), `strobe-gfx` (`ScenePlayer` for scoring, and
-  `offscreen` for the CLI's context), `strobe-ssf-lib` (library identifiers a control
-  must not shadow), plus serde, serde_json, thiserror, clap, anyhow, log.
-- **Used by:** the `strobe-autocontrol` binary here, and the app's "Generate
-  controls" (D202). The app runs it in a worker process of its own executable
-  (`strobe_app::generate`), so the show never waits on scoring.
+- **Depends on:** `strobe-scene` (control model, name rules, `SceneFolder`, the
+  lossless `glsl` tokenizer and the tab markers), `strobe-gfx` (`ScenePlayer`
+  for scoring), `strobe-ssf-lib` (library identifiers a control must not
+  shadow), plus serde, serde_json, thiserror, log. The default `cli` feature
+  adds clap, anyhow and `strobe-gfx`'s `native` for the binary; every crate
+  that links the library leaves it off, so the library builds for
+  `wasm32-unknown-unknown` (D558). `strobe-shadertoy` is a dev-dependency.
+- **Used by:** the `strobe-autocontrol` binary here, the app's "Generate
+  controls" (D202), and the website's `/play` (`strobe-web`, D558). The app
+  runs it in a worker process of its own executable (`strobe_app::generate`),
+  so the show never waits on scoring; the page takes a step per animation
+  frame, since a tab has one context and no such worker.
 - **Does not:**
   - touch the frame loop: scoring runs at import time only;
   - edit a scene in place: the result is a new folder;
@@ -41,8 +45,11 @@ anywhere. The same scene always gives the same controls (D126).
 | `rewrite::apply`, `control_line` | Replaces chosen sites by uniform expressions without moving a line; writes the matching `CONTROLS` entry |
 | `score::Rig`, `measure` | Compiles once; renders a probe with chosen controls moved; mean image difference; black detection |
 | `generate(&Gl, &Caps, &SceneFolder, &Options) -> Generated` | The whole pipeline: compile the original, analyse, score, keep, name, rewrite, verify against `FIDELITY_LIMIT` and drop any control that changes the default picture; `generate_from` takes the analysis instead |
+| `Job` | The same pipeline a piece at a time (D558): `Job::new`, then `step` until it returns the `Generated`, with `progress` for a progress line. A step hands a build to the driver, polls it, or renders one probe. `generate` is a `Job` run to its end. Dropping one cancels it and frees every GL object it made. `with_images` gives it the pictures a host with no folder holds |
 | `Report` | Every candidate with score and verdict (`Kept`, `Cut`, `Weak`, `QualityLimit`, `Unfaithful`, `Dead`, `Broken`, `DoesNotCompile`, `NotScored`), the kept names, `fidelity`, and the audio `suggestions`; `to_json`, `summary`, `detail` |
 | `write_scene` | Copies the source folder, overwrites the rewritten GLSL, splices `CONTROLS` into `scene.json` as text, renames into place |
+| `rewritten_files` | The same result as `(file, text)`, for a host that holds the scene in memory (D558) |
+| `Report::kept_controls`, `Kept` | The controls made, strongest first, as a review shows them; the app and the sandbox both read these |
 | `suggest::suggest` | Shape to bass, colour to highs, speed to loudness; never quality |
 | `naming::assign` | Unique snake_case names that avoid controls, reserved names, GLSL words and identifiers in the code |
 
@@ -178,6 +185,9 @@ STROBE_REQUIRE_HEADLESS_GL=1 STROBE_REQUIRE_WINDOW_GL=1 \
 - **The library takes a context, only the CLI picks one (D140).** `generate`
   is given `&Gl` and `&Caps`, so the app can score on its own context. The CLI
   uses `strobe_gfx::offscreen`, shared with the bench.
+- **One machine, two drivers (D558).** `Job` is the pipeline; `generate` runs
+  it in one call and the browser steps it. Reports from `generate` were
+  compared byte for byte against the code before the split.
 
 ## Status and known gaps
 
@@ -191,7 +201,12 @@ IDs given here; a gap with no ID is by design, with its decision named.
   ([`T480.md`](../../docs/hardware/T480.md), commit 855cd5d).
 - **The app's review** (D202, D219, D246) keeps or drops each control,
   re-ranges a slider and renames a control; the kept controls are saved
-  into the scene itself, with backups, or kept as a copy (D488).
+  into the scene itself, with backups, or kept as a copy (D488). The
+  website's `/play` offers the same review over its files (D558).
+- **A scene with `#include`** gets the included code written into the file
+  that includes it, in the copy the app writes and in the sandbox alike: the
+  analysis reads the expanded text, so a candidate may be in the included
+  code (by design, D558).
 - **Speed controls follow `st_speed` and `st_audio_time`** in a Shadertoy
   import because the app ticks them at the clock's rate
   (`strobe_shadertoy::convert::clock_rate`, D246). Tools that score scenes

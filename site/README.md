@@ -62,13 +62,18 @@ block fails the build rather than rendering an empty section.
   link rewriting, the scene reader, the activity feed's parsing.
 - `npm run test:e2e` runs the browser tests (Playwright) against `out/`, so
   build first. A machine with its own Chromium can use it instead of the
-  build Playwright pins: set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to its path.
+  build Playwright pins: set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to its path. A
+  server already on port 4173 is reused, whichever checkout started it; set
+  `PLAYWRIGHT_PORT` to serve this build on another.
 - `npm run test:play` runs `/play`'s specs alone (`tests/e2e/play*.spec.ts`;
   the smoke test is `play.spec.ts`): a library scene compiles and draws, and
   a shader error is marked on its line. It asks Chromium for SwiftShader, so
   it needs no GPU. `npm run browser` installs the headless Chromium it runs
   in. It runs one worker at a time: on Windows, with two or more, the preset
   spec's `window.prompt` never appears (`npm run test:e2e` still shows this).
+  `play-generate.spec.ts` covers Generate controls (D558): a library scene
+  with no controls through progress, review, accept and undo, then cancel and
+  the scenes it must refuse or leave alone.
 
 ## In CI
 

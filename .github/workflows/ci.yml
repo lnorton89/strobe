@@ -91,7 +91,7 @@ jobs:
           # The site, the crates its engine is built from, the scenes it
           # plays, what pins its tools, and the lane that runs it. A Markdown
           # file under site/ counts: the site renders some of its own.
-          if printf '%s\n' "$changed" | grep -qE '^(site/|scenes/|crates/strobe-(web|gfx|scene|audio)/|crates/xtask/src/ci\.rs$|\.github/workflows/ci\.yml$|Cargo\.(toml|lock)$|rust-toolchain\.toml$)'; then
+          if printf '%s\n' "$changed" | grep -qE '^(site/|scenes/|crates/strobe-(web|gfx|scene|audio|autocontrol)/|crates/xtask/src/ci\.rs$|\.github/workflows/ci\.yml$|Cargo\.(toml|lock)$|rust-toolchain\.toml$)'; then
             echo "site=true" >> "$GITHUB_OUTPUT"
           else
             echo "site=false" >> "$GITHUB_OUTPUT"

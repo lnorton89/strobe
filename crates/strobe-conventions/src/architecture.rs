@@ -113,6 +113,17 @@ pub const RULES: &[Rule] = &[
         why: "the renderer plays scenes; importing and scoring them sit above it",
     },
     Rule {
+        krate: "strobe-autocontrol",
+        forbidden: &["strobe-shadertoy", "strobe-diag", "strobe-script", "ureq", "rquickjs"],
+        why: "it runs in the browser build (D558), where the crash handler and QuickJS do not \
+              build; it reads GLSL with strobe-scene's tokenizer",
+    },
+    Rule {
+        krate: "strobe-web",
+        forbidden: &["strobe-shadertoy", "strobe-diag", "strobe-script", "ureq", "rquickjs"],
+        why: "the browser build takes the renderer, the DSP and the control generator alone (D524, D558)",
+    },
+    Rule {
         krate: "strobe-diag",
         forbidden: &[
             "strobe-gfx",
