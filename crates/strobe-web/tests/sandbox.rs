@@ -586,7 +586,7 @@ fn a_scene_folders_picture_and_the_pages_are_measured_alike() -> Result<()> {
     };
     let gl = headless.gl();
     let caps = Caps::from_info(gl.info());
-    let dir = fixture("media-image");
+    let dir = fixture("media-image.synScene");
     let app = generate(
         gl,
         &caps,
@@ -627,7 +627,7 @@ fn generating_between_frames_leaves_the_live_scene_as_it_would_have_been() -> Re
     let gl = headless.gl();
     // Feedback: a live pass whose targets or bindings were disturbed would
     // carry the damage from frame to frame.
-    let dir = fixture("feedback");
+    let dir = fixture("feedback.synScene");
     let main = std::fs::read_to_string(dir.join("main.glsl"))?;
     let json = std::fs::read_to_string(dir.join("scene.json"))?;
     let live = [("main.glsl", main.as_str()), ("scene.json", json.as_str())];
