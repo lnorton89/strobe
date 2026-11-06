@@ -189,6 +189,8 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
     dropped?: string[];
   } | null>(null);
   const [fps, setFps] = useState(0);
+  /** A compile has succeeded, so the status line may say so. */
+  const [compiledOnce, setCompiledOnce] = useState(false);
   /** How many of the scene's controls a person wrote, for the button's wording. */
   const [authored, setAuthored] = useState(0);
   /** Generate controls' strip: progress, its review, or what came of it. */
@@ -324,6 +326,7 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
         setControls(JSON.parse(json) as ControlJson[]);
         setNotes(JSON.parse(made.notesJson()) as string[]);
         setAuthored(made.authoredControls());
+        setCompiledOnce(true);
         readsFinal.current = made.readsFinalPass();
         setError(null);
         if (script) {
@@ -1272,7 +1275,9 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
           ) : null}
           {!error && !scriptError ? (
             <p className="text-label">
-              Compiled · {renderer || "starting"} · Ctrl+Enter compiles now
+              {compiledOnce
+                ? `Compiled · ${renderer} · Ctrl+Enter compiles now`
+                : "Starting the engine…"}
             </p>
           ) : null}
           {consoleLines.map((line, index) => (

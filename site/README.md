@@ -69,8 +69,8 @@ block fails the build rather than rendering an empty section.
   the smoke test is `play.spec.ts`): a library scene compiles and draws, and
   a shader error is marked on its line. It asks Chromium for SwiftShader, so
   it needs no GPU. `npm run browser` installs the headless Chromium it runs
-  in. It runs one worker at a time: on Windows, with two or more, the preset
-  spec's `window.prompt` never appears (`npm run test:e2e` still shows this).
+  in. It runs one worker at a time, since software rendering shares the CPU and
+  measuring a scene is the slowest thing the page does.
   `play-generate.spec.ts` covers Generate controls (D558): a library scene
   with no controls through progress, review, accept and undo, then cancel and
   the scenes it must refuse or leave alone.
