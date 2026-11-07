@@ -74,7 +74,8 @@ block fails the build rather than rendering an empty section.
   `play-generate.spec.ts` covers Generate controls (D558): the library's scene
   with no controls through progress and Cancel, a lighter scene with its
   controls baked in through review, accept and undo, then the scenes it must
-  refuse or leave alone.
+  refuse or leave alone. `play-context.spec.ts` takes the WebGL context away and
+  gives it back (D559).
 
 ## In CI
 
