@@ -166,6 +166,9 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
   const scalarNames = useRef<string[]>([]);
   const [renderer, setRenderer] = useState("");
   const [fatal, setFatal] = useState<string | null>(null);
+  /** The browser has taken the WebGL context and not yet given it back (D559). */
+  const [lostContext, setLostContext] = useState(false);
+  const contextLost = useRef(false);
 
   const [scene, setScene] = useState<Scene | null>(null);
   const [active, setActive] = useState("main.glsl");
@@ -218,6 +221,10 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
   const mouse = useRef({ x: 0, y: 0, cx: 0, cy: 0, held: [0, 0, 0], inside: false });
   const sceneRef = useRef<Scene | null>(null);
   sceneRef.current = scene;
+  const audioRef = useRef(audioMode);
+  audioRef.current = audioMode;
+  /** The last scene that compiled, which a rebuilt engine plays first (D559). */
+  const goodScene = useRef<Scene | null>(null);
 
   const log = useCallback((lines: ConsoleLine[]) => {
     if (lines.length === 0) return;
@@ -271,7 +278,9 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
   const compile = useCallback(
     async (next: Scene, fresh = false) => {
       const made = engine.current;
-      if (!made) return;
+      // With the context gone nothing can compile; the rebuild compiles the
+      // scene as it then is.
+      if (!made || contextLost.current) return;
       stopScript();
       setScriptError(null);
       readsFinal.current = false;
@@ -310,8 +319,14 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
           if (loaded.error) setScriptError(loaded.error);
         }
       }
+      // The script takes a while to load, and the context can go meanwhile.
+      if (contextLost.current || engine.current !== made) {
+        script?.terminate();
+        return;
+      }
       try {
         let json = made.load(next.title, next.files, imageBytes(next), JSON.stringify(extras));
+        goodScene.current = next;
         // A newly opened scene starts from its `default` preset, as in the app.
         const startup = next.files[presetFile("default")];
         if (fresh && startup !== undefined) {
@@ -443,7 +458,7 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
       raf = requestAnimationFrame(tick);
       const made = engine.current;
       const element = canvas.current;
-      if (!made || !element) return;
+      if (!made || !element || contextLost.current) return;
       const c = clock.current;
       const dt = c.last === 0 ? 1 / 60 : Math.min((now - c.last) / 1000, 0.1);
       c.last = now;
@@ -531,6 +546,8 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
       if (element.width === width && element.height === height) return;
       element.width = width;
       element.height = height;
+      // A rebuilt engine takes the canvas's size when the context comes back.
+      if (contextLost.current) return;
       try {
         engine.current?.resize(width, height);
       } catch (caught) {
@@ -582,6 +599,81 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
     generating.current = null;
     engine.current?.generateCancel();
   }, []);
+
+  /* ---- a lost context --------------------------------------------------- */
+
+  // The browser can take the WebGL context at any time: a driver reset, a phone
+  // putting the tab away, too many contexts open. Everything the engine holds on
+  // the GPU is gone with it, so a new engine is built on the context that comes
+  // back and given the scene again, with the controls as they were (D559).
+  useEffect(() => {
+    const element = canvas.current;
+    if (!element) return;
+
+    const rebuild = async () => {
+      const old = engine.current;
+      if (!old) return;
+      const values = JSON.parse(old.controlsJson()) as ControlJson[];
+      const bindings = await loadEngine();
+      if (engine.current !== old) return;
+      let made: Engine;
+      try {
+        old.free();
+        made = new bindings.Engine(element, 48_000);
+      } catch (caught) {
+        engine.current = null;
+        setFatal(String(caught));
+        return;
+      }
+      engine.current = made;
+      if (live.current) {
+        made.setSampleRate(live.current.sampleRate);
+        made.setAudioSource("live");
+      } else {
+        made.setAudioSource(audioRef.current === "silent" ? "silent" : "synthetic");
+      }
+      setRenderer(made.renderer());
+      clock.current.last = 0;
+      contextLost.current = false;
+      setLostContext(false);
+      // The last good scene first: a broken edit in the editor keeps its picture.
+      const good = goodScene.current;
+      if (good) {
+        await compile(good);
+        if (engine.current !== made) return;
+        for (const control of values) {
+          if (control.VALUE) made.setControl(control.NAME, new Float32Array(control.VALUE));
+        }
+        setControls(JSON.parse(made.controlsJson()) as ControlJson[]);
+      }
+      const current = sceneRef.current;
+      if (current && !(good && sameSources(good, current))) await compile(current);
+    };
+
+    const onLost = (event: Event) => {
+      // Without this the browser never offers the context back.
+      event.preventDefault();
+      contextLost.current = true;
+      setLostContext(true);
+      stopScript();
+      if (generating.current) {
+        generating.current = null;
+        engine.current?.generateCancel();
+        setGenerate({
+          state: "message",
+          tone: "info",
+          text: "The browser dropped the graphics context, so measuring stopped. Nothing changed. Generate again when the picture is back.",
+        });
+      }
+    };
+    const onRestored = () => void rebuild();
+    element.addEventListener("webglcontextlost", onLost);
+    element.addEventListener("webglcontextrestored", onRestored);
+    return () => {
+      element.removeEventListener("webglcontextlost", onLost);
+      element.removeEventListener("webglcontextrestored", onRestored);
+    };
+  }, [compile, stopScript]);
 
   const open = useCallback((next: Scene) => {
     stopGenerate();
@@ -998,6 +1090,16 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
               Loading the engine…
             </p>
           ) : null}
+          {lostContext ? (
+            <p
+              className="absolute inset-0 grid place-items-center bg-black p-4 text-center font-mono text-xs text-white"
+              role="status"
+              data-testid="play-context-lost"
+            >
+              The browser dropped the picture&apos;s graphics context and should give it back
+              shortly. Your scene is saved; if this stays, reload the page.
+            </p>
+          ) : null}
         </div>
         <div className="min-h-0 overflow-y-auto border-t border-hairline lg:flex-2">
           <div className="flex flex-wrap items-center gap-2 border-b border-hairline px-4 py-2">
@@ -1029,7 +1131,7 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
             <button
               type="button"
               className={BUTTON}
-              disabled={!scene || generate?.state === "running"}
+              disabled={!scene || lostContext || generate?.state === "running"}
               title="Measure the numbers in this scene's code, while it plays, and propose the ones that change the picture as controls. Nothing changes until you add them."
               onClick={startGenerate}
             >
@@ -1066,7 +1168,7 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
               opened.current = scene ? { ...scene, title } : null;
               setScene((old) => (old ? { ...old, title } : old));
             }}
-            className="min-w-0 flex-1 border border-transparent bg-transparent px-1 py-1 font-display text-base text-text hover:border-hairline focus:border-accent focus:outline-none"
+            className="min-w-48 flex-1 border border-transparent bg-transparent px-1 py-1 font-display text-base text-text hover:border-hairline focus:border-accent focus:outline-none"
           />
           <button type="button" className={BUTTON} onClick={() => scene && void compile(scene)}>
             Compile
@@ -1275,9 +1377,11 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
           ) : null}
           {!error && !scriptError ? (
             <p className="text-label">
-              {compiledOnce
-                ? `Compiled · ${renderer} · Ctrl+Enter compiles now`
-                : "Starting the engine…"}
+              {lostContext
+                ? "Waiting for the graphics context"
+                : compiledOnce
+                  ? `Compiled · ${renderer} · Ctrl+Enter compiles now`
+                  : "Starting the engine…"}
             </p>
           ) : null}
           {consoleLines.map((line, index) => (

@@ -187,7 +187,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-gfx
 
-44 decision(s).
+45 decision(s).
 
 - [D40](decisions/D40.md): our own `log` backend in `strobe-diag`, not tracing or env_logger
 - [D41](decisions/D41.md): unsafe is allowed in exactly one `strobe-diag` file
@@ -233,6 +233,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D552](decisions/D552.md): the website and its wasm engine are built and played in CI, as a lane of their own
 - [D553](decisions/D553.md): Shadertoy cube-map inputs become scene cube maps, the keyboard is 256x3 with every key up, and the Needs-work bin is closed
 - [D558](decisions/D558.md): the sandbox generates controls a step per animation frame, on the app's own engine and settings
+- [D559](decisions/D559.md): /play rebuilds its engine when the WebGL context comes back
 
 ## strobe-io
 
@@ -380,13 +381,14 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-web
 
-5 decision(s).
+6 decision(s).
 
 - [D524](decisions/D524.md): the website's `/play` sandbox runs Strobe's own player as wasm on WebGL2, scripts in a worker, with no server
 - [D544](decisions/D544.md): what the audit work had skipped: a static C runtime, the imports and the loaded ANGLE checked, the browser engine built, generators that reach the code, and a changelog that can be corrected
 - [D552](decisions/D552.md): the website and its wasm engine are built and played in CI, as a lane of their own
 - [D554](decisions/D554.md): the sandbox's scene is its files: pictures added, includes resolved, the picture read back, presets as files
 - [D558](decisions/D558.md): the sandbox generates controls a step per animation frame, on the app's own engine and settings
+- [D559](decisions/D559.md): /play rebuilds its engine when the WebGL context comes back
 
 ## xtask
 
