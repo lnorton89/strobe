@@ -5,17 +5,24 @@
  *   POST /api/share      a scene's JSON in, `{ id, url }` out
  *   GET  /api/scene/:id  the stored scene's JSON, cached for good (it never changes)
  *   GET  /s/:id          the /play page, which loads that scene
+ *   POST /api/read-image a small picture in, a reading of it out, nothing kept (D560)
+ *   GET  /api/models/... the in-browser CLIP's files, from R2 (D560)
  *
  * wrangler.jsonc runs this script first only for /api/* and /s/*; every
  * other request is a static file served without it.
  */
 
+import { type ModelBucket, serveModelFile } from "./model-store";
+import { type Ai, readImage } from "./read-image";
 import { type Bucket, MAX_BYTES, isSceneId, loadScene, storeScene, validateScene } from "./scene-store";
 
 type Env = {
   ASSETS: { fetch(request: Request | URL | string): Promise<Response> };
   SCENES: Bucket;
   SHARE_LIMIT?: { limit(options: { key: string }): Promise<{ success: boolean }> };
+  READ_LIMIT?: { limit(options: { key: string }): Promise<{ success: boolean }> };
+  AI?: Ai;
+  MODELS?: ModelBucket;
 };
 
 function json(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
@@ -66,6 +73,12 @@ const worker = {
       if (request.method !== "POST") return json({ error: "POST a scene" }, 405, { Allow: "POST" });
       return share(request, env);
     }
+    if (path === "/api/read-image") {
+      if (request.method !== "POST") return json({ error: "POST a picture" }, 405, { Allow: "POST" });
+      return readImage(request, env);
+    }
+    const modelFile = /^\/api\/models\/(.+)$/.exec(path);
+    if (modelFile?.[1] !== undefined) return serveModelFile(modelFile[1], request.method, env.MODELS);
     const fetched = /^\/api\/scene\/([^/]+)$/.exec(path);
     if (fetched?.[1] !== undefined && request.method === "GET") return scene(fetched[1], env);
     const link = /^\/s\/([^/]+)\/?$/.exec(path);
