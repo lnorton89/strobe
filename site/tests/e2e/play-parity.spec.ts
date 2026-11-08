@@ -4,7 +4,8 @@ import { expect, test, type Page } from "@playwright/test";
 
 /*
  * The sandbox plays what the app plays (D554, backlog W-01): an #include of
- * the scene's own file, a picture the visitor adds for IMAGES, a script that
+ * the scene's own file, a picture the visitor adds for IMAGES, a cube map's
+ * faces and a still MEDIA picture added the same way (D564), a script that
  * reads the picture back with textureFinalPass, and presets saved and
  * applied as presets/<name>.json.
  *
@@ -29,6 +30,10 @@ const MARK = path.resolve(
   __dirname,
   "../../../crates/strobe-app/tests/corpus-gate/fixtures/media-image.synScene/mark.png",
 );
+
+/** strobe-web's own fixtures (D564): a six-face cube map and a MEDIA still. */
+const OWN = path.resolve(__dirname, "../../../crates/strobe-web/tests/fixtures");
+const FACES = ["px.png", "nx.png", "py.png", "ny.png", "pz.png", "nz.png"];
 
 async function openStored(page: Page, scene: StoredScene) {
   await page.addInitScript((stored) => {
@@ -134,4 +139,58 @@ test("a preset is saved as presets/<name>.json and applied", async ({ page }) =>
 
   await page.locator("#play-preset").selectOption("presets/quiet.json");
   await expect(page.getByText("Applied preset quiet")).toBeVisible();
+});
+
+test("a cube map's faces added together are drawn, and a missing face is named", async ({ page }) => {
+  await openStored(page, {
+    title: "cube",
+    files: {
+      "main.glsl": readFileSync(path.join(OWN, "cube-faces.synScene/main.glsl"), "utf8"),
+      "scene.json": readFileSync(path.join(OWN, "cube-faces.synScene/scene.json"), "utf8"),
+    },
+  });
+  await expect(page.getByText(/cube map `room` reads px\.png, nx\.png/)).toBeVisible();
+  expect(await brightness(page, 0.5, 0.5)).toBe(0);
+
+  await page.locator('input[type=file][accept="image/png,image/jpeg"]').setInputFiles(
+    FACES.map((name) => ({
+      name,
+      mimeType: "image/png",
+      buffer: readFileSync(path.join(OWN, "cube-faces.synScene", name)),
+    })),
+  );
+  for (const name of FACES) await expect(page.getByRole("tab", { name })).toBeVisible();
+  await expect(page.getByText(/cube map `room`/)).toHaveCount(0, { timeout: 15_000 });
+  // Round the middle row the faces show in turn: more than one colour.
+  await expect
+    .poll(
+      async () => {
+        const seen = new Set<string>();
+        for (let u = 0.05; u < 1; u += 0.1) seen.add((await pixelAt(page, u, 0.5)).join(","));
+        return seen.size;
+      },
+      { timeout: 15_000 },
+    )
+    .toBeGreaterThan(2);
+});
+
+test("a still MEDIA picture added is shown, and a missing one is named", async ({ page }) => {
+  await openStored(page, {
+    title: "media",
+    files: {
+      "main.glsl": readFileSync(path.join(OWN, "media-still.synScene/main.glsl"), "utf8"),
+      "scene.json": readFileSync(path.join(OWN, "media-still.synScene/scene.json"), "utf8"),
+    },
+  });
+  await expect(page.getByText(/MEDIA reads still\.png, not in the scene/)).toBeVisible();
+  expect(await brightness(page, 0.5, 0.5)).toBe(0);
+
+  await page.locator('input[type=file][accept="image/png,image/jpeg"]').setInputFiles({
+    name: "still.png",
+    mimeType: "image/png",
+    buffer: readFileSync(path.join(OWN, "media-still.synScene/still.png")),
+  });
+  await expect(page.getByRole("tab", { name: "still.png" })).toBeVisible();
+  await expect(page.getByText(/MEDIA reads still\.png/)).toHaveCount(0, { timeout: 15_000 });
+  await expect.poll(() => brightness(page, 0.5, 0.5), { timeout: 15_000 }).toBeGreaterThan(0);
 });

@@ -1,0 +1,3 @@
+{ "TITLE": "Sandbox: cube faces", "CREDIT": "Strobe",
+  "DESCRIPTION": "Samples a six-face cube map all the way round, so a face missing, swapped or turned changes the frame.",
+  "CUBEMAPS": [ { "NAME": "room", "PATHS": ["px.png", "nx.png", "py.png", "ny.png", "pz.png", "nz.png"] } ] }

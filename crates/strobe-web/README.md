@@ -70,10 +70,11 @@ IDs given here; a gap with no ID is by design, with its decision named.
   scenes compile and play, an edit's error marks its line, a scripted scene
   runs in the worker, share links round-trip. Other browsers and phones are
   not yet tried (backlog W-02).
-- Cube maps, `MEDIA` (`syn_Media`), the Shadertoy audio texture and the
+- A `MEDIA` folder (an image sequence), the Shadertoy audio texture and the
   meta controls are not in the browser; `IMAGES`, `#include`,
-  `textureFinalPass` and presets are (D554). An include of lygia or hg_sdf
-  works only when the scene holds the file (backlog W-01).
+  `textureFinalPass` and presets are (D554), and so are cube maps and a still
+  `MEDIA` picture from pictures the visitor adds (D564). An include of lygia
+  or hg_sdf works only when the scene holds the file (backlog W-01).
 - The native tests skip where there is no headless EGL, as on Windows; CI's
   Linux job runs them, and its `check` lane clippies this crate and
   strobe-gfx for `wasm32-unknown-unknown` (D544, D552). CI's `site` job

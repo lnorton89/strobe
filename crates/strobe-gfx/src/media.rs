@@ -35,7 +35,7 @@
 //! Video files are not here: they need a decoder decision of their own
 //! (backlog M-04).
 
-use crate::assets::{MediaMessage, MediaRequest, spawn_decoder};
+use crate::assets::{Frame, MediaMessage, MediaRequest, spawn_decoder};
 use crate::gl::{Gl, Texture};
 use crate::live::{MEDIA_TYPE_WEBCAM, Mailbox};
 use crate::player::sampling_for;
@@ -113,6 +113,19 @@ impl Media {
             started: Some(std::time::Instant::now()),
             ..Self::none()
         })
+    }
+
+    /// A still picture already decoded, uploaded now, with no thread: the
+    /// browser sandbox's `MEDIA` (W-01), whose build has no threads and
+    /// whose picture is in memory. A failed upload is reported through
+    /// [`Self::take_failure`] as a decoder's would be.
+    pub(crate) fn still(gl: &Gl, request: MediaRequest, frame: Frame) -> Self {
+        let mut media = Self {
+            request: Some(request),
+            ..Self::none()
+        };
+        media.accept(gl, MediaMessage::Frame(frame));
+        media
     }
 
     /// What this media was asked for; `None` for no media.
