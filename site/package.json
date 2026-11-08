@@ -18,9 +18,9 @@
   },
   "scripts": {
     "assets": "node scripts/sync-assets.mjs && tsx scripts/sync-release.mts && tsx scripts/render-cards.mts",
-    "predev": "npm run assets && npm run engine",
+    "predev": "npm run assets && npm run engine && node scripts/copy-clip.mjs",
     "dev": "next dev",
-    "prebuild": "npm run assets && npm run engine",
+    "prebuild": "npm run assets && npm run engine && node scripts/copy-clip.mjs",
     "build": "next build",
     "postbuild": "node scripts/flatten-segments.mjs",
     "start": "next start",
@@ -38,6 +38,7 @@
     "deploy:preview": "npx --yes netlify-cli@27 deploy",
     "engine": "node scripts/build-engine.mjs",
     "deploy:cf": "node scripts/deploy-cloudflare.mjs",
+    "upload:clip": "node scripts/upload-clip-model.mjs",
     "deploy:cf:preview": "node scripts/deploy-cloudflare.mjs --preview"
   },
   "dependencies": {
@@ -66,6 +67,7 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.10.2",
+    "@huggingface/transformers": "^3.8.1",
     "@lhci/cli": "^0.15.1",
     "@playwright/test": "^1.61.1",
     "@tailwindcss/postcss": "^4",

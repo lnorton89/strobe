@@ -22,9 +22,11 @@
  *   between the scene's own frames (D558), so the preview keeps playing. What
  *   it proposes changes nothing until it is accepted; then it is an edit like
  *   any other, and it can be undone.
+ * - From image (D560) makes scenes from a picture, loaded only when asked for.
+ *   What it hands back is a text scene like any other.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import CodeEditor, { type LineError } from "@/components/play/CodeEditor";
 import ControlsPanel from "@/components/play/ControlsPanel";
 import GeneratePanel, { type GenerateState } from "@/components/play/GeneratePanel";
@@ -68,6 +70,8 @@ import {
 } from "@/lib/play/generate";
 import type { ConsoleLine, ControlInfo, FromWorker, ToWorker } from "@/lib/play/script-protocol";
 import { workerMain } from "@/lib/play/script-worker";
+
+const FromImagePanel = lazy(() => import("@/components/play/FromImagePanel"));
 
 export type LibraryScene = { slug: string; title: string };
 
@@ -205,6 +209,8 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
     nextAt: number;
     shownAt: number;
   } | null>(null);
+  /** From image: mounted once first asked for, and open or closed after that. */
+  const [fromImage, setFromImage] = useState<"unmounted" | "open" | "closed">("unmounted");
   /** A scene compile() was already called for, which the edit timer skips. */
   const compiledAlready = useRef<Scene | null>(null);
 
@@ -258,7 +264,11 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
       const slug = new URLSearchParams(window.location.search).get("scene");
       if (!first && slug) first = await fetchScene(slug).catch(() => undefined);
       first ??= readStored() ?? BLANK;
-      if (!cancelled) setScene(first);
+      if (cancelled) return;
+      setScene(first);
+      // Back from a provider's sign-in, which leaves a code in the address:
+      // the panel finishes it, and opens itself.
+      if (new URLSearchParams(window.location.search).has("code")) setFromImage("closed");
     })();
     return () => {
       cancelled = true;
@@ -594,6 +604,9 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
     if (!parsed) throw new Error(`scene ${slug} has no main.glsl`);
     return parsed;
   }
+
+  const showFromImage = useCallback(() => setFromImage("open"), []);
+  const hideFromImage = useCallback(() => setFromImage("closed"), []);
 
   const stopGenerate = useCallback(() => {
     generating.current = null;
@@ -1003,6 +1016,16 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
 
   return (
     <div className="grid min-h-[calc(100dvh-4rem)] grid-cols-1 border-t border-hairline lg:h-[calc(100dvh-4rem)] lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+      {fromImage !== "unmounted" ? (
+        <Suspense fallback={null}>
+          <FromImagePanel
+            open={fromImage === "open"}
+            onClose={hideFromImage}
+            onScene={open}
+            onSignedIn={showFromImage}
+          />
+        </Suspense>
+      ) : null}
       {/* The picture, its transport, its controls. */}
       <section className="flex min-h-0 flex-col border-hairline lg:border-r" aria-label="Preview">
         <div className="flex flex-wrap items-center gap-2 border-b border-hairline px-3 py-2">
@@ -1030,6 +1053,9 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
               ))}
             </optgroup>
           </select>
+          <button type="button" className={BUTTON} onClick={showFromImage}>
+            From image
+          </button>
           <button type="button" className={BUTTON} onClick={() => setPlaying((p) => !p)}>
             {playing ? "Pause" : "Play"}
           </button>

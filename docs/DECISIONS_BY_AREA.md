@@ -455,7 +455,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## Not tied to one crate
 
-227 decision(s).
+228 decision(s).
 
 - [D1](decisions/D1.md): native OpenGL (glow + glutin), not wgpu
 - [D2](decisions/D2.md): ANGLE as the fallback context, not native-only
@@ -684,3 +684,4 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D547](decisions/D547.md): Shadertoy imports go to user-scenes/shadertoy-imports, and thumbnails are rendered for scenes without one
 - [D550](decisions/D550.md): background compiles leave the output four fifths of the time, and a rebuilt context reloads the thumbnails
 - [D557](decisions/D557.md): the website looks the release up at build and again in the browser, renders its cards with Metaplate, self-hosts its fonts, and states facts instead of selling
+- [D560](decisions/D560.md): From image makes scenes from a picture by templates, neural recognition and the visitor's own LLM, and a person picks

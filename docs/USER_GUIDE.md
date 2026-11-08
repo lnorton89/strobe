@@ -663,6 +663,31 @@ rename it and set a slider's range, then choose:
 A scene that already has controls gets *Add generated controls* in the
 panel's Scene tab, which adds new ones beside them in the same way.
 
+## Making a scene from a picture
+
+The website's sandbox at `/play` has **From image**, which makes new scenes
+inspired by a picture: its colours and feel, drawn by the scene's own rules.
+It is not a copy, and it never samples the picture.
+
+1. Choose a picture and drag the corners onto the part that matters. A
+   straightened painting gives far better colours than a photo of a room.
+2. Check the layout, motif and mood, and click any that look wrong. To have them
+   read for you, use *In this browser* (a one-off download of about 89 MB; the
+   picture stays on your machine) or *Free service* (sends a small copy, keeps
+   nothing, and is limited each day).
+3. Press **Make scenes** and pick from the gallery. It opens in the editor with
+   its controls, and exports as a `.synScene` for the app like any other scene.
+
+The built-in templates cannot draw a particular subject. For a one-off scene,
+open **Use your own AI model**, then sign in with OpenRouter or paste an API key
+from Anthropic, OpenAI or Google. The picture goes from your browser straight to
+that provider, your key never reaches Strobe's site, and it may cost you money on
+that account. A ChatGPT or Claude subscription does not include an API key.
+
+Every scene is screened for flashing and rejected if it fails. That is a check
+and not a certificate, so take care if your audience may include people with
+photosensitive epilepsy.
+
 ## Graphics
 
 Strobe tries the GPU's OpenGL driver first and falls back to ANGLE

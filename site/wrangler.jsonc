@@ -22,9 +22,18 @@
     "run_worker_first": ["/api/*", "/s/*"],
   },
   // Shared scenes, one immutable JSON object per scene, named by its hash.
-  "r2_buckets": [{ "binding": "SCENES", "bucket_name": "strobe-scenes" }],
+  // The in-browser CLIP's weights (D560): scripts/upload-clip-model.mjs fills it.
+  "r2_buckets": [
+    { "binding": "SCENES", "bucket_name": "strobe-scenes" },
+    { "binding": "MODELS", "bucket_name": "strobe-models" },
+  ],
   // Shares per visitor: ten a minute is far above anyone sharing by hand.
+  // Readings per visitor: each spends the account's free daily AI allowance.
   "ratelimits": [
     { "name": "SHARE_LIMIT", "namespace_id": "1001", "simple": { "limit": 10, "period": 60 } },
+    { "name": "READ_LIMIT", "namespace_id": "1002", "simple": { "limit": 4, "period": 60 } },
   ],
+  // From image's free reading of a picture (D560): Workers AI's free allowance.
+  // The model's licence must be accepted once for the account; see D560.
+  "ai": { "binding": "AI" },
 }

@@ -431,6 +431,11 @@
 - **Work:** deploy from CI (a Cloudflare token as a secret, on master or on a release), and decide whether the whole Playwright suite runs there.
 - **Acceptance:** a pull request that breaks the browser build or the sandbox fails CI (met, D552); a deploy needs no developer machine.
 
+### W-04 From image, proved on people and real services
+- **Status:** Built (D560): measures, thirteen templates, gates, the gallery, CLIP in the browser, the free service, and a visitor's own LLM with OpenRouter sign-in and API keys. Tested on Chromium with SwiftShader and on LIGHTNING's RX 580, and all templates compile on desktop GL with the eight reference photos. Unit tests fake the providers and Workers AI.
+- **Work:** run each provider and the OpenRouter sign-in with real accounts, and fix what differs from the fakes; a blind rating by the owner of 50-100 mixed pictures, including photographs and light-background art, comparing templates alone, CLIP and an LLM; measure a template on floor hardware; add templates where the rating shows gaps; decide whether evolution-strategy fitting earns its place; screen the templates with EA IRIS in CI as well as the browser's own gate; decide the licence generated scenes carry.
+- **Acceptance:** a person who has not seen the code picks a scene they would play from most mixed pictures; each provider completes a scene with a real key; the free service answers on the deployed site.
+
 ## Epic G — Graphics backend research
 
 ### G-01 Machine-readable shader compatibility report
