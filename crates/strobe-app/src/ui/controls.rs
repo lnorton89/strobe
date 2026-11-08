@@ -21,7 +21,7 @@
 //! | bang, bang counter | a row-sized outlined button, its name in capitals | `press` |
 //! | xy | a property row with the readout, then a pad the rows' width | `set` of both components |
 //! | color | a property row with the hex value and a swatch that opens a picker | `set` of three components |
-//! | dropdown | a property row with a combo box at its right end | `set` to the option index |
+//! | dropdown | a property row with its options side by side at its right end, or a combo box past five or when they do not fit (D563) | `set` to the option index |
 //!
 //! Widgets show the control's *target* (what was asked for), so a smooth
 //! slider does not fight the hand moving it. The bar also draws the
@@ -55,6 +55,11 @@
 //! where a bar's number sits. A bang is the one row that is a button: the
 //! frame outlined and its name in capitals in the middle. So a group's rows
 //! start and end on the same two lines whatever their kinds.
+//!
+//! A control a MIDI or OSC mapping drives says so on its row (D563): the
+//! source's short name (`CC 21`, `/1/fader1`) in an outlined mark, left of
+//! the number or the widget, and every mapping in full in the tooltip. It is
+//! outlined where `MACRO` is filled, so the two read apart.
 //!
 //! The interaction contract (D511):
 //!
@@ -96,6 +101,22 @@ const TYPE_AFTER: f64 = 0.3;
 
 /// The width of the field a value is typed into.
 const TYPE_WIDTH: f32 = 72.0;
+
+/// The most options a dropdown shows side by side (D563); past this it is a
+/// combo box.
+const SEGMENTS_MAX: usize = 5;
+
+/// The widest a mapping's mark grows before its text is cut short: an OSC
+/// address can be long, and the name needs the room more.
+const MARK_MAX: f32 = 96.0;
+
+/// The least room a row keeps for its name when a dropdown decides whether
+/// its options fit side by side.
+const NAME_ROOM: f32 = 72.0;
+
+/// The narrowest an option side by side is drawn, so a one-letter label is
+/// still a target.
+const SEGMENT_MIN: f32 = 28.0;
 
 /// How large the rows are drawn (D291): the side panel's compact rows, or
 /// the main view's Controls page, sized for a finger as much as a mouse.
@@ -355,6 +376,8 @@ pub struct Bar<'a> {
     pub unit: &'static str,
     /// A short mark before the number (a pinned macro).
     pub tag: Option<&'a str>,
+    /// The mapping that drives it, as its mark shows it (D563).
+    pub mark: Option<&'a str>,
     /// The row's height.
     pub height: f32,
 }
@@ -605,6 +628,16 @@ fn paint_bar(
         painter.galley(chip.center() - size / 2.0, galley, theme::rgb(theme.app));
         right = chip.left() - SPACE_XS;
     }
+    if let Some(mark) = spec.mark {
+        right = paint_mark(
+            ui,
+            &painter,
+            theme,
+            mark,
+            (right, center),
+            right - rect.left() - NAME_ROOM,
+        );
+    }
     let label = widgets::truncated(
         ui,
         spec.label,
@@ -618,6 +651,76 @@ fn paint_bar(
         label,
         theme::rgb(theme.text),
     );
+}
+
+/// A mapping that drives a control, as its row shows it (D563).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Mark {
+    /// On the row: `CC 21`, an OSC address.
+    pub tag: String,
+    /// In the tooltip: the source with its kind, channel and device.
+    pub full: String,
+}
+
+/// What a row's mark says for `marks`: the first mapping's tag, and how many
+/// more there are. `None` for a control nothing drives.
+pub fn mark_text(marks: &[Mark]) -> Option<String> {
+    let first = marks.first()?;
+    Some(match marks.len() {
+        1 => first.tag.clone(),
+        n => format!("{} +{}", first.tag, n - 1),
+    })
+}
+
+/// A mark's font: the small text, regular, so it reads under the name.
+fn mark_font(ui: &Ui) -> egui::FontId {
+    egui::TextStyle::Small.resolve(ui.style())
+}
+
+/// How wide `text`'s mark is drawn, at most [`MARK_MAX`].
+fn mark_width(ui: &Ui, theme: &Palette, text: &str) -> f32 {
+    let galley = ui.painter().layout_no_wrap(
+        text.to_string(),
+        mark_font(ui),
+        theme::rgb(theme.text_muted),
+    );
+    (galley.size().x + SPACE_SM).min(MARK_MAX)
+}
+
+/// Paints a mapping's mark with its right edge and centre at `at`, cut short
+/// to fit `room` (and [`MARK_MAX`]), and returns where the next thing to its
+/// left ends. With too little room it paints nothing and returns `at`'s x.
+fn paint_mark(
+    ui: &Ui,
+    painter: &egui::Painter,
+    theme: &Palette,
+    text: &str,
+    at: (f32, f32),
+    room: f32,
+) -> f32 {
+    let (right, center) = at;
+    let room = room.min(MARK_MAX);
+    if room < 28.0 {
+        return right;
+    }
+    let galley = widgets::truncated(ui, text, mark_font(ui), theme.text_muted, room - SPACE_SM);
+    let size = galley.size();
+    let chip = Rect::from_min_max(
+        egui::pos2(right - size.x - SPACE_SM, center - size.y / 2.0 - 1.0),
+        egui::pos2(right, center + size.y / 2.0 + 1.0),
+    );
+    painter.rect_stroke(
+        chip,
+        CornerRadius::same(3),
+        Stroke::new(1.0, theme::rgb(theme.border_strong)),
+        egui::StrokeKind::Inside,
+    );
+    painter.galley(
+        chip.center() - size / 2.0,
+        galley,
+        theme::rgb(theme.text_muted),
+    );
+    chip.left() - SPACE_XS
 }
 
 /// How far one arrow press moves a slider, as a fraction of its range.
@@ -645,18 +748,31 @@ pub fn decimals(min: f32, max: f32) -> usize {
     }
 }
 
-/// Pinning a control as a Performance Macro from its row (D210): the
-/// name's context menu offers it.
-pub struct Pins<'a> {
+/// What a bank's rows offer besides their controls: pinning a control as a
+/// Performance Macro from its row (D210), which the context menu offers,
+/// and the marks of the mappings that drive each control (D563).
+pub struct Extras<'a> {
     /// The bank's controls that already have a pinned macro, by name.
     pub pinned: &'a [String],
     /// What was chosen this frame: a control's name, and pin (`true`) or
     /// unpin.
     pub chosen: Option<(String, bool)>,
+    /// The mappings that drive each control, by the control's index in the
+    /// bank. Shorter than the bank, or empty, where nothing is mapped.
+    pub marks: &'a [Vec<Mark>],
+}
+
+/// The marks of the control at `index`, copied out so the row can still
+/// take the extras mutably for its menu: none without extras.
+fn marks_of(pins: &Option<&mut Extras<'_>>, index: usize) -> Vec<Mark> {
+    pins.as_deref()
+        .and_then(|extras| extras.marks.get(index))
+        .cloned()
+        .unwrap_or_default()
 }
 
 /// Gives `response` (a control's name or button) the pin menu.
-fn pin_menu(response: &Response, def: &ControlDef, pins: &mut Option<&mut Pins<'_>>) {
+fn pin_menu(response: &Response, def: &ControlDef, pins: &mut Option<&mut Extras<'_>>) {
     let Some(pins) = pins.as_deref_mut() else {
         return;
     };
@@ -695,7 +811,7 @@ pub fn rows(
     theme: &Palette,
     bank: &mut ControlBank,
     members: &[usize],
-    mut pins: Option<&mut Pins<'_>>,
+    mut pins: Option<&mut Extras<'_>>,
     scale: Scale,
 ) {
     let pins = &mut pins;
@@ -715,7 +831,7 @@ fn control(
     theme: &Palette,
     bank: &mut ControlBank,
     index: usize,
-    pins: &mut Option<&mut Pins<'_>>,
+    pins: &mut Option<&mut Extras<'_>>,
     scale: Scale,
 ) -> Option<Rect> {
     let def = bank.defs().get(index).cloned()?;
@@ -750,9 +866,31 @@ fn describe(response: Response, def: &ControlDef) -> Response {
     }
 }
 
+/// Every mapping that drives a control, one line each, for its tooltip.
+fn mapped_lines(ui: &mut Ui, marks: &[Mark]) {
+    for mark in marks {
+        ui.label(format!("Mapped to {}", mark.full));
+    }
+}
+
+/// A row's tooltip: the description and every mapping that drives the
+/// control (D563). No tooltip when there is neither.
+fn row_tip(response: Response, def: &ControlDef, marks: &[Mark]) -> Response {
+    if def.description.is_none() && marks.is_empty() {
+        return response;
+    }
+    response.on_hover_ui(|ui| {
+        if let Some(text) = &def.description {
+            ui.label(text);
+        }
+        mapped_lines(ui, marks);
+    })
+}
+
 /// A value bar's tooltip: the description, then the range and the default,
-/// so the bar itself carries no more words than its name and number.
-fn bar_tip(response: Response, def: &ControlDef, spec: &Bar<'_>) -> Response {
+/// then the mappings, so the bar itself carries no more words than its name
+/// and number.
+fn bar_tip(response: Response, def: &ControlDef, spec: &Bar<'_>, marks: &[Mark]) -> Response {
     let places = decimals(spec.min, spec.max);
     response.on_hover_ui(|ui| {
         if let Some(text) = &def.description {
@@ -762,6 +900,7 @@ fn bar_tip(response: Response, def: &ControlDef, spec: &Bar<'_>) -> Response {
             "{:.places$} to {:.places$}{}, default {:.places$}",
             spec.min, spec.max, spec.unit, spec.default
         ));
+        mapped_lines(ui, marks);
     })
 }
 
@@ -771,7 +910,7 @@ fn row_menu(
     response: &Response,
     def: &ControlDef,
     modified: bool,
-    pins: &mut Option<&mut Pins<'_>>,
+    pins: &mut Option<&mut Extras<'_>>,
 ) -> bool {
     let mut reset = false;
     response.context_menu(|ui| {
@@ -809,7 +948,7 @@ fn slider_row(
     index: usize,
     def: &ControlDef,
     (v, output, mode): (f32, f32, Mode),
-    pins: &mut Option<&mut Pins<'_>>,
+    pins: &mut Option<&mut Extras<'_>>,
     scale: Scale,
 ) {
     let (min, max, default) = (def.min[0], def.max[0], def.default[0]);
@@ -828,6 +967,8 @@ fn slider_row(
     let pinned = pins
         .as_deref()
         .is_some_and(|pins| pins.pinned.contains(&def.name));
+    let marks = marks_of(pins, index);
+    let mark = mark_text(&marks);
     let spec = Bar {
         label: &name,
         min,
@@ -836,11 +977,12 @@ fn slider_row(
         output,
         unit,
         tag: pinned.then_some("MACRO"),
+        mark: mark.as_deref(),
         height: scale.bar_height(theme::density()),
     };
     let modified = (value - default).abs() > (max - min).abs() * 0.001;
     let (response, out) = bar(ui, theme, index, &spec, &mut value);
-    let response = bar_tip(response, def, &spec);
+    let response = bar_tip(response, def, &spec, &marks);
     if row_menu(&response, def, modified, pins) || out.reset {
         bank.set_default(index);
     } else if out.changed {
@@ -859,7 +1001,7 @@ fn toggle_row(
     index: usize,
     def: &ControlDef,
     v: f32,
-    pins: &mut Option<&mut Pins<'_>>,
+    pins: &mut Option<&mut Extras<'_>>,
     scale: Scale,
 ) {
     // A property row with the switch at its right end (D510); a click
@@ -867,7 +1009,15 @@ fn toggle_row(
     let on = def.normalize(0, v) >= 0.5;
     let name = display_name(&def.name);
     let switch = switch_size(scale.bar_height(theme::density()));
-    let response = property_row(ui, theme, &name, scale, switch.x);
+    let marks = marks_of(pins, index);
+    let response = property_row(
+        ui,
+        theme,
+        &name,
+        scale,
+        switch.x,
+        mark_text(&marks).as_deref(),
+    );
     response
         .widget_info(|| egui::WidgetInfo::selected(egui::Role::CheckBox, true, on, name.as_str()));
     let rect = right_slot(response.rect, switch);
@@ -895,7 +1045,7 @@ fn toggle_row(
         half - 2.0,
         theme::rgb(theme.text.lerp(theme.text_on_accent, t)),
     );
-    let response = describe(response, def);
+    let response = row_tip(response, def, &marks);
     let at_default = (def.normalize(0, def.default[0]) >= 0.5) == on;
     if row_menu(&response, def, !at_default, pins) {
         bank.set_default(index);
@@ -915,8 +1065,16 @@ fn switch_size(height: f32) -> Vec2 {
 /// range (D510): the bar's height, raised surface and rounded ends, and
 /// the name at the bar's left inset. The caller draws its widget,
 /// `widget` wide, at the right end ([`right_slot`]), where a bar's number
-/// sits, so every row of a group starts and ends on the same two lines.
-fn property_row(ui: &mut Ui, theme: &Palette, name: &str, scale: Scale, widget: f32) -> Response {
+/// sits, so every row of a group starts and ends on the same two lines. A
+/// mapping's `mark` (D563) sits just left of the widget.
+fn property_row(
+    ui: &mut Ui,
+    theme: &Palette,
+    name: &str,
+    scale: Scale,
+    widget: f32,
+    mark: Option<&str>,
+) -> Response {
     let height = scale.bar_height(theme::density());
     let size = Vec2::new(ui.available_width().max(48.0), height);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
@@ -941,14 +1099,19 @@ fn property_row(ui: &mut Ui, theme: &Palette, name: &str, scale: Scale, widget: 
             egui::StrokeKind::Inside,
         );
     }
+    let mut right = rect.right() - SPACE_SM - widget - SPACE_SM;
+    if let Some(mark) = mark {
+        right = paint_mark(
+            ui,
+            &painter,
+            theme,
+            mark,
+            (right, rect.center().y),
+            right - rect.left() - NAME_ROOM,
+        );
+    }
     let font = egui::TextStyle::Body.resolve(ui.style());
-    let label = widgets::truncated(
-        ui,
-        name,
-        font,
-        theme.text,
-        rect.width() - widget - SPACE_SM * 3.0,
-    );
+    let label = widgets::truncated(ui, name, font, theme.text, right - rect.left() - SPACE_SM);
     let label_size = label.size();
     painter.galley(
         egui::pos2(rect.left() + SPACE_SM, rect.center().y - label_size.y / 2.0),
@@ -981,7 +1144,7 @@ fn bang_row(
     index: usize,
     def: &ControlDef,
     (kind, output): (Bang, f32),
-    pins: &mut Option<&mut Pins<'_>>,
+    pins: &mut Option<&mut Extras<'_>>,
     scale: Scale,
 ) {
     // A button the row's width and height (D510): outlined and labelled in
@@ -1030,7 +1193,9 @@ fn bang_row(
         super::fonts::strong(font.size),
         theme::rgb(ink),
     );
+    let label_right = rect.center().x + label.size().x / 2.0;
     painter.galley(rect.center() - label.size() / 2.0, label, theme::rgb(ink));
+    let mut right = rect.right() - SPACE_SM;
     match kind {
         Bang::Counter | Bang::CounterSmooth => {
             let count = painter.layout_no_wrap(
@@ -1040,18 +1205,29 @@ fn bang_row(
             );
             let count_size = count.size();
             painter.galley(
-                egui::pos2(
-                    rect.right() - SPACE_SM - count_size.x,
-                    rect.center().y - count_size.y / 2.0,
-                ),
+                egui::pos2(right - count_size.x, rect.center().y - count_size.y / 2.0),
                 count,
                 theme::rgb(theme.text_muted),
             );
+            right -= count_size.x + SPACE_SM;
         }
         Bang::Plain | Bang::Smooth => {}
     }
+    // The mark at the right end, clear of the name in the middle.
+    let marks = marks_of(pins, index);
+    if let Some(mark) = mark_text(&marks) {
+        // Where the mark ends is not needed: nothing is drawn left of it.
+        let _ = paint_mark(
+            ui,
+            &painter,
+            theme,
+            &mark,
+            (right, rect.center().y),
+            right - label_right - SPACE_SM,
+        );
+    }
     pin_menu(&response, def, pins);
-    if describe(response, def).clicked() {
+    if row_tip(response, def, &marks).clicked() {
         bank.press(index);
     }
 }
@@ -1122,7 +1298,7 @@ fn xy_row(
     index: usize,
     def: &ControlDef,
     v: [f32; 3],
-    pins: &mut Option<&mut Pins<'_>>,
+    pins: &mut Option<&mut Extras<'_>>,
     scale: Scale,
 ) {
     // A property row with the readout where a bar's number sits, then the
@@ -1130,7 +1306,15 @@ fn xy_row(
     const READOUT: f32 = 96.0;
     let modified = def.default[0] != v[0] || def.default[1] != v[1];
     let name = display_name(&def.name);
-    let row = property_row(ui, theme, &name, scale, READOUT);
+    let marks = marks_of(pins, index);
+    let row = property_row(
+        ui,
+        theme,
+        &name,
+        scale,
+        READOUT,
+        mark_text(&marks).as_deref(),
+    );
     ui.painter().text(
         egui::pos2(row.rect.right() - SPACE_SM, row.rect.center().y),
         egui::Align2::RIGHT_CENTER,
@@ -1142,7 +1326,7 @@ fn xy_row(
             theme.text_muted
         }),
     );
-    if row_menu(&describe(row, def), def, modified, pins) {
+    if row_menu(&row_tip(row, def, &marks), def, modified, pins) {
         bank.set_default(index);
     }
     let pad = scale.pad_size(ui.available_width());
@@ -1215,7 +1399,7 @@ fn color_row(
     index: usize,
     def: &ControlDef,
     v: [f32; 3],
-    pins: &mut Option<&mut Pins<'_>>,
+    pins: &mut Option<&mut Extras<'_>>,
     scale: Scale,
 ) {
     // A property row with the swatch at its right end and the hex value
@@ -1224,7 +1408,15 @@ fn color_row(
     let height = scale.bar_height(theme::density());
     let swatch_size = Vec2::new((height * 1.6).round(), height - 8.0);
     let name = display_name(&def.name);
-    let row = property_row(ui, theme, &name, scale, swatch_size.x + HEX_ROOM);
+    let marks = marks_of(pins, index);
+    let row = property_row(
+        ui,
+        theme,
+        &name,
+        scale,
+        swatch_size.x + HEX_ROOM,
+        mark_text(&marks).as_deref(),
+    );
     let slot = right_slot(row.rect, swatch_size);
     let channel = |c: f32| (c.clamp(0.0, 1.0) * 255.0).round() as u8;
     ui.painter().text(
@@ -1245,7 +1437,7 @@ fn color_row(
         bank.set(index, None, &rgb);
     }
     let modified = (0..3).any(|c| def.default[c] != v[c]);
-    if row_menu(&describe(row, def), def, modified, pins) {
+    if row_menu(&row_tip(row, def, &marks), def, modified, pins) {
         bank.set_default(index);
     }
 }
@@ -1284,37 +1476,153 @@ fn dropdown_row(
     index: usize,
     def: &ControlDef,
     v: f32,
-    pins: &mut Option<&mut Pins<'_>>,
+    pins: &mut Option<&mut Extras<'_>>,
     scale: Scale,
 ) {
-    // A property row with the list at its right end (D510).
+    // A property row with the options side by side at its right end when
+    // there are few enough and they fit (D563), or a combo box (D510).
     let selected = (v.round().max(0.0) as usize).min(def.labels.len().saturating_sub(1));
-    let current = def.labels.get(selected).cloned().unwrap_or_default();
     let height = scale.bar_height(theme::density());
-    let width = (ui.available_width() * 0.5).clamp(80.0, 200.0);
     let name = display_name(&def.name);
-    let row = property_row(ui, theme, &name, scale, width);
-    let slot = right_slot(row.rect, Vec2::new(width, height - 4.0));
-    let picked = ui.put(slot, |ui: &mut Ui| {
-        // No taller than the row, at the compact density too.
-        ui.spacing_mut().interact_size.y = slot.height();
-        egui::ComboBox::from_id_salt(("dropdown", index))
-            .width(width)
-            .selected_text(current)
-            .show_ui(ui, |ui| {
-                for (option, label) in def.labels.iter().enumerate() {
-                    if ui.selectable_label(option == selected, label).clicked() {
-                        bank.set(index, Some(0), &[option as f32]);
-                    }
-                }
-            })
-            .response
-    });
-    describe(picked, def);
+    let marks = marks_of(pins, index);
+    let mark = mark_text(&marks);
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let natural: Vec<f32> = def
+        .labels
+        .iter()
+        .map(|label| {
+            let galley =
+                ui.painter()
+                    .layout_no_wrap(label.clone(), font.clone(), theme::rgb(theme.text));
+            (galley.size().x + SPACE_SM * 2.0).max(SEGMENT_MIN)
+        })
+        .collect();
+    let marked = mark
+        .as_deref()
+        .map_or(0.0, |mark| mark_width(ui, theme, mark) + SPACE_XS);
+    let room = ui.available_width().max(48.0) - SPACE_SM * 3.0 - NAME_ROOM - marked;
+    let row = match segment_widths(&natural, room) {
+        Some(cells) => {
+            let total: f32 = cells.iter().sum();
+            let row = property_row(ui, theme, &name, scale, total, mark.as_deref());
+            let slot = right_slot(row.rect, Vec2::new(total, height - 2.0));
+            if let Some(option) = segments(ui, theme, slot, &def.labels, &cells, selected) {
+                bank.set(index, Some(0), &[option as f32]);
+            }
+            row
+        }
+        None => {
+            let current = def.labels.get(selected).cloned().unwrap_or_default();
+            let width = (ui.available_width() * 0.5).clamp(80.0, 200.0);
+            let row = property_row(ui, theme, &name, scale, width, mark.as_deref());
+            let slot = right_slot(row.rect, Vec2::new(width, height - 4.0));
+            let picked = ui.put(slot, |ui: &mut Ui| {
+                // No taller than the row, at the compact density too.
+                ui.spacing_mut().interact_size.y = slot.height();
+                egui::ComboBox::from_id_salt(("dropdown", index))
+                    .width(width)
+                    .selected_text(current)
+                    .show_ui(ui, |ui| {
+                        for (option, label) in def.labels.iter().enumerate() {
+                            if ui.selectable_label(option == selected, label).clicked() {
+                                bank.set(index, Some(0), &[option as f32]);
+                            }
+                        }
+                    })
+                    .response
+            });
+            describe(picked, def);
+            row
+        }
+    };
     let modified = (def.default[0] - v).abs() > f32::EPSILON;
-    if row_menu(&describe(row, def), def, modified, pins) {
+    if row_menu(&row_tip(row, def, &marks), def, modified, pins) {
         bank.set_default(index);
     }
+}
+
+/// The widths of a dropdown's options side by side (D563), from each
+/// label's natural width, in `room`: equal cells when the widest fits that
+/// way, each its own width when only that fits, and `None` (a combo box)
+/// for no options, more than [`SEGMENTS_MAX`], or options that do not fit.
+pub fn segment_widths(natural: &[f32], room: f32) -> Option<Vec<f32>> {
+    if natural.is_empty() || natural.len() > SEGMENTS_MAX || !room.is_finite() {
+        return None;
+    }
+    let widest = natural.iter().copied().fold(0.0_f32, f32::max);
+    if widest * natural.len() as f32 <= room {
+        return Some(vec![widest; natural.len()]);
+    }
+    let sum: f32 = natural.iter().sum();
+    (sum <= room).then(|| natural.to_vec())
+}
+
+/// A dropdown's options side by side in `slot`, `cells` wide each, the
+/// chosen one filled in the accent (D563). Each option is a target of its
+/// own: a click, or Space or Enter with it focused, chooses it. Returns the
+/// option chosen this frame.
+fn segments(
+    ui: &mut Ui,
+    theme: &Palette,
+    slot: Rect,
+    labels: &[String],
+    cells: &[f32],
+    selected: usize,
+) -> Option<usize> {
+    let painter = ui.painter().clone();
+    let radius = CornerRadius::same(BAR_RADIUS - 1);
+    painter.rect_filled(slot, radius, theme::rgb(theme.app));
+    painter.rect_stroke(
+        slot,
+        radius,
+        Stroke::new(1.0, theme::rgb(theme.border)),
+        egui::StrokeKind::Inside,
+    );
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let mut left = slot.left();
+    let mut chosen = None;
+    for (option, (label, width)) in labels.iter().zip(cells).enumerate() {
+        let cell = Rect::from_min_size(
+            egui::pos2(left, slot.top()),
+            Vec2::new(*width, slot.height()),
+        )
+        .shrink2(Vec2::new(2.0, 1.5));
+        left += width;
+        let response = ui.interact(
+            cell,
+            ui.scope_id().with(("segment", option)),
+            Sense::click(),
+        );
+        let on = option == selected;
+        response.widget_info(|| {
+            egui::WidgetInfo::selected(egui::Role::RadioButton, true, on, label.as_str())
+        });
+        let fill = if on {
+            theme::rgb(theme.accent)
+        } else {
+            widgets::hover_fill(ui, response.id, response.hovered(), theme.app, theme.hover)
+        };
+        painter.rect_filled(cell, CornerRadius::same(BAR_RADIUS - 2), fill);
+        if response.has_focus() {
+            painter.rect_stroke(
+                cell,
+                CornerRadius::same(BAR_RADIUS - 2),
+                Stroke::new(1.5, theme::rgb(theme.accent_hover)),
+                egui::StrokeKind::Inside,
+            );
+        }
+        let ink = if on {
+            theme.text_on_accent
+        } else {
+            theme.text_muted
+        };
+        let text = widgets::truncated(ui, label, font.clone(), ink, cell.width() - SPACE_XS);
+        painter.galley(cell.center() - text.size() / 2.0, text, theme::rgb(ink));
+        if response.clicked() && !on {
+            chosen = Some(option);
+        }
+    }
+    chosen
 }
 
 #[cfg(test)]
@@ -1501,6 +1809,7 @@ mod tests {
                 output: None,
                 unit: "",
                 tag: None,
+                mark: None,
                 height: 24.0,
             };
             let (response, result) = bar(ui, &theme, 0_u8, &spec, value);
@@ -1720,5 +2029,186 @@ mod tests {
         assert_eq!(display_name("master"), "Master", "a capital");
         assert_eq!(display_name("hueShift"), "HueShift", "letters kept");
         assert_eq!(display_name(""), "", "empty");
+    }
+
+    #[test]
+    fn short_options_sit_side_by_side_and_long_or_many_do_not() {
+        assert_eq!(
+            segment_widths(&[30.0, 50.0, 40.0], 200.0),
+            Some(vec![50.0; 3]),
+            "equal cells when the widest fits three times"
+        );
+        assert_eq!(
+            segment_widths(&[30.0, 90.0, 40.0], 200.0),
+            Some(vec![30.0, 90.0, 40.0]),
+            "each its own width when only that fits"
+        );
+        assert_eq!(
+            segment_widths(&[80.0, 90.0, 70.0], 200.0),
+            None,
+            "a combo box when they do not fit"
+        );
+        assert_eq!(
+            segment_widths(&[30.0; 6], 1000.0),
+            None,
+            "a combo box past five options"
+        );
+        assert_eq!(segment_widths(&[], 1000.0), None, "no options");
+        assert_eq!(
+            segment_widths(&[30.0], f32::NAN),
+            None,
+            "no room to speak of"
+        );
+    }
+
+    #[test]
+    fn a_mark_names_the_first_mapping_and_counts_the_rest() {
+        let mark = |tag: &str| Mark {
+            tag: tag.to_string(),
+            full: format!("MIDI {tag} ch 1"),
+        };
+        assert_eq!(mark_text(&[]), None, "nothing mapped");
+        assert_eq!(mark_text(&[mark("CC 21")]).as_deref(), Some("CC 21"));
+        assert_eq!(
+            mark_text(&[mark("CC 21"), mark("Note 36"), mark("/1/fader1")]).as_deref(),
+            Some("CC 21 +2"),
+            "two more"
+        );
+    }
+
+    /// A bank of one dropdown with `labels`.
+    fn dropdown(labels: &[&str]) -> Result<ControlBank> {
+        let values: Vec<usize> = (0..labels.len()).collect();
+        let json = format!(
+            r#"{{ "CONTROLS": [ {{ "NAME": "mode", "TYPE": "dropdown", "LABELS": {}, "VALUES": {} }} ] }}"#,
+            serde_json::to_string(labels)?,
+            serde_json::to_string(&values)?
+        );
+        let scene = SceneDef::parse(&json, "t")?;
+        Ok(ControlBank::new(scene.controls)?)
+    }
+
+    /// Every piece of text in `shapes`, nested lists opened.
+    fn texts(shapes: &[egui::epaint::ClippedShape]) -> Vec<String> {
+        fn walk(shape: &egui::Shape, out: &mut Vec<String>) {
+            match shape {
+                egui::Shape::Text(text) => out.push(text.galley.text().to_string()),
+                egui::Shape::Vec(inner) => {
+                    for shape in inner {
+                        walk(shape, out);
+                    }
+                }
+                egui::Shape::Noop
+                | egui::Shape::Rect(_)
+                | egui::Shape::Circle(_)
+                | egui::Shape::Ellipse(_)
+                | egui::Shape::LineSegment { .. }
+                | egui::Shape::Path(_)
+                | egui::Shape::Band(_)
+                | egui::Shape::Mesh(_)
+                | egui::Shape::QuadraticBezier(_)
+                | egui::Shape::CubicBezier(_)
+                | egui::Shape::Callback(_) => {}
+            }
+        }
+        let mut out = Vec::new();
+        for clipped in shapes {
+            walk(&clipped.shape, &mut out);
+        }
+        out
+    }
+
+    /// One pass drawing the bank's first control with `marks`, at the page's
+    /// scale; its row's rect and what was drawn.
+    fn draw_first(
+        ctx: &egui::Context,
+        bank: &mut ControlBank,
+        marks: &[Vec<Mark>],
+        time: f64,
+        events: Vec<egui::Event>,
+    ) -> (Rect, Vec<String>) {
+        let theme = crate::palette::fallback().clone();
+        let mut raw = crate::ui::testing::input(Vec2::new(400.0, 200.0), events);
+        raw.time = Some(time);
+        let mut rect = Rect::NOTHING;
+        let pass = crate::ui::testing::run(ctx, raw, |ui| {
+            let mut extras = Extras {
+                pinned: &[],
+                chosen: None,
+                marks,
+            };
+            let mut extras = Some(&mut extras);
+            rect = control(ui, &theme, bank, 0, &mut extras, Scale::Touch).unwrap_or(Rect::NOTHING);
+        });
+        (rect, texts(&pass.shapes))
+    }
+
+    #[test]
+    fn a_short_dropdown_shows_its_options_and_a_click_chooses_one() -> Result<()> {
+        let mut bank = dropdown(&["Off", "Soft", "Hard"])?;
+        let ctx = egui::Context::default();
+        let (row, drawn) = draw_first(&ctx, &mut bank, &[], 0.0, Vec::new());
+        for label in ["Off", "Soft", "Hard"] {
+            assert!(
+                drawn.iter().any(|text| text == label),
+                "{label} is drawn on the row: {drawn:?}"
+            );
+        }
+        // The last option ends where the row's widgets end.
+        let at = egui::pos2(row.right() - SPACE_SM - 8.0, row.center().y);
+        let _ = draw_first(
+            &ctx,
+            &mut bank,
+            &[],
+            0.1,
+            vec![egui::Event::PointerMoved(at), press(at, true)],
+        );
+        let _ = draw_first(&ctx, &mut bank, &[], 0.15, vec![press(at, false)]);
+        let value = bank.target(0).copied().unwrap_or_default()[0];
+        assert!(
+            (value - 2.0).abs() < f32::EPSILON,
+            "a click on the last option chose it: {value}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_long_dropdown_keeps_its_combo_box() -> Result<()> {
+        let labels = ["One", "Two", "Three", "Four", "Five", "Six"];
+        let mut bank = dropdown(&labels)?;
+        let ctx = egui::Context::default();
+        let (_, drawn) = draw_first(&ctx, &mut bank, &[], 0.0, Vec::new());
+        assert!(
+            drawn.iter().any(|text| text == "One"),
+            "the chosen option shows in the box: {drawn:?}"
+        );
+        assert!(
+            !drawn.iter().any(|text| text == "Six"),
+            "the rest wait in the closed list: {drawn:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_mapped_control_shows_its_source_on_the_row() -> Result<()> {
+        let json = r#"{ "CONTROLS": [ { "NAME": "swirl", "TYPE": "slider" } ] }"#;
+        let scene = SceneDef::parse(json, "t")?;
+        let mut bank = ControlBank::new(scene.controls)?;
+        let marks = vec![vec![Mark {
+            tag: "CC 21".to_string(),
+            full: "MIDI CC 21 ch 1".to_string(),
+        }]];
+        let ctx = egui::Context::default();
+        let (_, drawn) = draw_first(&ctx, &mut bank, &marks, 0.0, Vec::new());
+        assert!(
+            drawn.iter().any(|text| text == "CC 21"),
+            "the mark is drawn: {drawn:?}"
+        );
+        let (_, unmapped) = draw_first(&ctx, &mut bank, &[], 0.1, Vec::new());
+        assert!(
+            !unmapped.iter().any(|text| text == "CC 21"),
+            "no mark without a mapping: {unmapped:?}"
+        );
+        Ok(())
     }
 }

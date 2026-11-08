@@ -428,7 +428,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## CI and releases
 
-23 decision(s).
+24 decision(s).
 
 - [D52](decisions/D52.md): release flow is draft, build, attest, undraft
 - [D53](decisions/D53.md): PDBs are published separately, and the release build must override `strip`
@@ -453,10 +453,11 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D548](decisions/D548.md): a release waits in draft for the owner's approval, so its own archives are checked on a GPU first
 - [D549](decisions/D549.md): master's history was rewritten so the owner is its only author, and the docs name the rewritten commits
 - [D552](decisions/D552.md): the website and its wasm engine are built and played in CI, as a lane of their own
+- [D561](decisions/D561.md): Claude Code reviews PRs on the owner's Max plan, with the job's own token
 
 ## Not tied to one crate
 
-228 decision(s).
+229 decision(s).
 
 - [D1](decisions/D1.md): native OpenGL (glow + glutin), not wgpu
 - [D2](decisions/D2.md): ANGLE as the fallback context, not native-only
@@ -686,3 +687,4 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D550](decisions/D550.md): background compiles leave the output four fifths of the time, and a rebuilt context reloads the thumbnails
 - [D557](decisions/D557.md): the website looks the release up at build and again in the browser, renders its cards with Metaplate, self-hosts its fonts, and states facts instead of selling
 - [D560](decisions/D560.md): From image makes scenes from a picture by templates, neural recognition and the visitor's own LLM, and a person picks
+- [D563](decisions/D563.md): a short dropdown shows its options side by side, and a mapped control says so on its row
