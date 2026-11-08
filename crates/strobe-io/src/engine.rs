@@ -291,6 +291,39 @@ impl Engine {
         Outcome::Learned(self.bind(armed, source.clone()))
     }
 
+    // ------------------------------------------------------------ marks
+
+    /// The sources that drive each control of `bank`, for the mark on its
+    /// row (D561): one list per control, in mapping order, without repeats.
+    /// A mapping to a macro counts for the control the macro stands for. A
+    /// switched-off mapping counts for nothing, nor does one whose target is
+    /// not in this bank, or that could not drive it (an XY pad or a colour
+    /// named without its component).
+    pub fn sources_by_control(&self, which: BankId, bank: &ControlBank) -> Vec<Vec<Source>> {
+        let mut out = vec![Vec::new(); bank.defs().len()];
+        let (scene, meta) = match which {
+            BankId::Scene => (Some(bank), None),
+            BankId::Meta => (None, Some(bank)),
+        };
+        for mapping in self.mappings.iter().filter(|mapping| mapping.enabled) {
+            let Ok(flat) = flatten(&mapping.target, &self.macros) else {
+                continue;
+            };
+            let Ok(found) = locate_control(&flat, scene, meta) else {
+                continue;
+            };
+            if found.bank != which {
+                continue;
+            }
+            if let Some(sources) = out.get_mut(found.index)
+                && !sources.contains(&mapping.source)
+            {
+                sources.push(mapping.source.clone());
+            }
+        }
+        out
+    }
+
     // ------------------------------------------------------------ mapping
 
     /// Macro `id`'s own key went down or up (D228): drives the macro as a
@@ -1684,6 +1717,58 @@ mod tests {
             rig.engine.mappings[0].target,
             Target::Macro { id },
             "bound to the macro"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn each_control_lists_the_sources_that_drive_it() -> Result<()> {
+        let mut rig = Rig::new()?;
+        rig.map(21, Target::control("speed"));
+        // The same source twice is listed once.
+        rig.map(21, Target::control("speed"));
+        rig.map(22, Target::control("glow")).enabled = false;
+        let id = rig
+            .engine
+            .macros
+            .add(Macro::new("Mode", Target::control("mode")));
+        rig.map(23, Target::Macro { id });
+        // An XY pad named without its component cannot be driven.
+        rig.map(24, Target::control("pad"));
+        rig.map(
+            25,
+            Target::Meta {
+                name: "master".into(),
+                component: None,
+            },
+        );
+        let scene = rig.engine.sources_by_control(BankId::Scene, &rig.scene);
+        let tags = |index: Option<usize>| -> Vec<String> {
+            index
+                .and_then(|index| scene.get(index))
+                .map(|sources| sources.iter().map(Source::tag).collect())
+                .unwrap_or_default()
+        };
+        assert_eq!(scene.len(), rig.scene.defs().len(), "one list per control");
+        assert_eq!(tags(rig.scene.find("speed")), ["CC 21"], "listed once");
+        assert!(
+            tags(rig.scene.find("glow")).is_empty(),
+            "a switched-off mapping"
+        );
+        assert_eq!(tags(rig.scene.find("mode")), ["CC 23"], "through its macro");
+        assert!(tags(rig.scene.find("pad")).is_empty(), "no component");
+        let meta = rig.engine.sources_by_control(BankId::Meta, &rig.meta);
+        let master = rig.meta.find("master").ok_or_else(|| anyhow!("master"))?;
+        assert_eq!(
+            meta.get(master).map(Vec::len),
+            Some(1),
+            "the meta bank has its own"
+        );
+        assert!(
+            scene
+                .iter()
+                .all(|sources| !sources.iter().any(|s| s.tag() == "CC 25")),
+            "a meta mapping marks no scene control"
         );
         Ok(())
     }

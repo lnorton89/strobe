@@ -5,8 +5,9 @@
 //               and random, then the output-wide meta group; and its tags,
 //               picture, media and Generate controls.
 //
-// Dependencies: egui; strobe-scene (ControlBank); super::{controls, model,
-//               theme, widgets, state}, crate::script
+// Dependencies: egui; strobe-scene (ControlBank); strobe-io (MacroSet,
+//               Engine and BankId for the rows' mapping marks);
+//               super::{controls, model, theme, widgets, state}, crate::script
 // ============================================================================
 
 //! The control inspector (UI_DESIGN sections 9 to 11, UI_IMPLEMENTATION_PLAN
@@ -68,6 +69,7 @@ use crate::icon::Icon;
 use crate::palette::Palette;
 use crate::script::ScriptState;
 use egui::{Sense, Ui, Vec2};
+use strobe_io::target::BankId;
 use strobe_scene::control::{ControlBank, ControlKind};
 
 /// Which half of the playing scene's panel is drawn (D283).
@@ -286,13 +288,20 @@ pub fn show(
             // Which controls already have a pinned macro, for the rows' pin
             // menu (D210).
             let (pinned_scene, pinned_meta) = pinned_names(&model.remote.remote.engine.macros);
-            let mut scene_pins = controls::Pins {
+            // And which mappings drive each control, for the rows' marks
+            // (D561).
+            let engine = &model.remote.remote.engine;
+            let scene_marks = mapping_marks(engine, BankId::Scene, model.controls.as_deref());
+            let meta_marks = mapping_marks(engine, BankId::Meta, model.meta.as_deref());
+            let mut scene_pins = controls::Extras {
                 pinned: &pinned_scene,
                 chosen: None,
+                marks: &scene_marks,
             };
-            let mut meta_pins = controls::Pins {
+            let mut meta_pins = controls::Extras {
                 pinned: &pinned_meta,
                 chosen: None,
+                marks: &meta_marks,
             };
             let ui_state = &mut *model.ui;
             let meta = model.meta.as_deref_mut();
@@ -561,6 +570,37 @@ fn media_words(media: MediaPanel<'_>) -> (String, String) {
 
 /// The names of the scene controls and meta controls that a pinned macro
 /// drives as a whole (not one component).
+/// The marks of the mappings that drive each control of `bank` (D561):
+/// the source's short name for the row, and in full, with its kind and
+/// device, for the tooltip. Empty with no bank.
+fn mapping_marks(
+    engine: &strobe_io::Engine,
+    which: BankId,
+    bank: Option<&ControlBank>,
+) -> Vec<Vec<controls::Mark>> {
+    let Some(bank) = bank else {
+        return Vec::new();
+    };
+    engine
+        .sources_by_control(which, bank)
+        .iter()
+        .map(|sources| {
+            sources
+                .iter()
+                .map(|source| controls::Mark {
+                    tag: source.tag(),
+                    full: match source.device() {
+                        Some(device) => {
+                            format!("{} {} from {device}", source.badge(), source.label())
+                        }
+                        None => format!("{} {}", source.badge(), source.label()),
+                    },
+                })
+                .collect()
+        })
+        .collect()
+}
+
 fn pinned_names(macros: &strobe_io::MacroSet) -> (Vec<String>, Vec<String>) {
     let mut scene = Vec::new();
     let mut meta = Vec::new();
@@ -922,8 +962,8 @@ fn groups(
     bank: &mut ControlBank,
     meta: Option<&mut ControlBank>,
     state: &mut super::state::UiState,
-    pins: &mut controls::Pins<'_>,
-    meta_pins: &mut controls::Pins<'_>,
+    pins: &mut controls::Extras<'_>,
+    meta_pins: &mut controls::Extras<'_>,
     scale: controls::Scale,
 ) {
     let groups = controls::group_order(bank.defs());
@@ -971,7 +1011,7 @@ fn group(
     theme: &Palette,
     bank: &mut ControlBank,
     state: &mut super::state::UiState,
-    pins: &mut controls::Pins<'_>,
+    pins: &mut controls::Extras<'_>,
     name: Option<&str>,
     members: &[usize],
     scale: controls::Scale,
@@ -1145,7 +1185,7 @@ fn meta_section(
     theme: &Palette,
     meta: &mut ControlBank,
     state: &mut super::state::UiState,
-    pins: &mut controls::Pins<'_>,
+    pins: &mut controls::Extras<'_>,
     scale: controls::Scale,
 ) {
     // The collapse key keeps its old name, so a layout saved before the
