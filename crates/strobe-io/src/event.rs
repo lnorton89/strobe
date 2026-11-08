@@ -413,7 +413,7 @@ impl Source {
     }
 
     /// The shortest name a person still knows the source by, for the mark
-    /// on a control's row (D561): `CC 21`, `Note 36`, `Bend`, `PC 5`, or
+    /// on a control's row (D563): `CC 21`, `Note 36`, `Bend`, `PC 5`, or
     /// the OSC address. The channel and device are in [`Source::label`].
     pub fn tag(&self) -> String {
         match self {

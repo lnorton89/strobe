@@ -21,7 +21,7 @@
 //! | bang, bang counter | a row-sized outlined button, its name in capitals | `press` |
 //! | xy | a property row with the readout, then a pad the rows' width | `set` of both components |
 //! | color | a property row with the hex value and a swatch that opens a picker | `set` of three components |
-//! | dropdown | a property row with its options side by side at its right end, or a combo box past five or when they do not fit (D561) | `set` to the option index |
+//! | dropdown | a property row with its options side by side at its right end, or a combo box past five or when they do not fit (D563) | `set` to the option index |
 //!
 //! Widgets show the control's *target* (what was asked for), so a smooth
 //! slider does not fight the hand moving it. The bar also draws the
@@ -56,7 +56,7 @@
 //! frame outlined and its name in capitals in the middle. So a group's rows
 //! start and end on the same two lines whatever their kinds.
 //!
-//! A control a MIDI or OSC mapping drives says so on its row (D561): the
+//! A control a MIDI or OSC mapping drives says so on its row (D563): the
 //! source's short name (`CC 21`, `/1/fader1`) in an outlined mark, left of
 //! the number or the widget, and every mapping in full in the tooltip. It is
 //! outlined where `MACRO` is filled, so the two read apart.
@@ -102,7 +102,7 @@ const TYPE_AFTER: f64 = 0.3;
 /// The width of the field a value is typed into.
 const TYPE_WIDTH: f32 = 72.0;
 
-/// The most options a dropdown shows side by side (D561); past this it is a
+/// The most options a dropdown shows side by side (D563); past this it is a
 /// combo box.
 const SEGMENTS_MAX: usize = 5;
 
@@ -376,7 +376,7 @@ pub struct Bar<'a> {
     pub unit: &'static str,
     /// A short mark before the number (a pinned macro).
     pub tag: Option<&'a str>,
-    /// The mapping that drives it, as its mark shows it (D561).
+    /// The mapping that drives it, as its mark shows it (D563).
     pub mark: Option<&'a str>,
     /// The row's height.
     pub height: f32,
@@ -653,7 +653,7 @@ fn paint_bar(
     );
 }
 
-/// A mapping that drives a control, as its row shows it (D561).
+/// A mapping that drives a control, as its row shows it (D563).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Mark {
     /// On the row: `CC 21`, an OSC address.
@@ -750,7 +750,7 @@ pub fn decimals(min: f32, max: f32) -> usize {
 
 /// What a bank's rows offer besides their controls: pinning a control as a
 /// Performance Macro from its row (D210), which the context menu offers,
-/// and the marks of the mappings that drive each control (D561).
+/// and the marks of the mappings that drive each control (D563).
 pub struct Extras<'a> {
     /// The bank's controls that already have a pinned macro, by name.
     pub pinned: &'a [String],
@@ -874,7 +874,7 @@ fn mapped_lines(ui: &mut Ui, marks: &[Mark]) {
 }
 
 /// A row's tooltip: the description and every mapping that drives the
-/// control (D561). No tooltip when there is neither.
+/// control (D563). No tooltip when there is neither.
 fn row_tip(response: Response, def: &ControlDef, marks: &[Mark]) -> Response {
     if def.description.is_none() && marks.is_empty() {
         return response;
@@ -1066,7 +1066,7 @@ fn switch_size(height: f32) -> Vec2 {
 /// the name at the bar's left inset. The caller draws its widget,
 /// `widget` wide, at the right end ([`right_slot`]), where a bar's number
 /// sits, so every row of a group starts and ends on the same two lines. A
-/// mapping's `mark` (D561) sits just left of the widget.
+/// mapping's `mark` (D563) sits just left of the widget.
 fn property_row(
     ui: &mut Ui,
     theme: &Palette,
@@ -1480,7 +1480,7 @@ fn dropdown_row(
     scale: Scale,
 ) {
     // A property row with the options side by side at its right end when
-    // there are few enough and they fit (D561), or a combo box (D510).
+    // there are few enough and they fit (D563), or a combo box (D510).
     let selected = (v.round().max(0.0) as usize).min(def.labels.len().saturating_sub(1));
     let height = scale.bar_height(theme::density());
     let name = display_name(&def.name);
@@ -1541,7 +1541,7 @@ fn dropdown_row(
     }
 }
 
-/// The widths of a dropdown's options side by side (D561), from each
+/// The widths of a dropdown's options side by side (D563), from each
 /// label's natural width, in `room`: equal cells when the widest fits that
 /// way, each its own width when only that fits, and `None` (a combo box)
 /// for no options, more than [`SEGMENTS_MAX`], or options that do not fit.
@@ -1558,7 +1558,7 @@ pub fn segment_widths(natural: &[f32], room: f32) -> Option<Vec<f32>> {
 }
 
 /// A dropdown's options side by side in `slot`, `cells` wide each, the
-/// chosen one filled in the accent (D561). Each option is a target of its
+/// chosen one filled in the accent (D563). Each option is a target of its
 /// own: a click, or Space or Enter with it focused, chooses it. Returns the
 /// option chosen this frame.
 fn segments(

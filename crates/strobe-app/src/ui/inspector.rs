@@ -289,7 +289,7 @@ pub fn show(
             // menu (D210).
             let (pinned_scene, pinned_meta) = pinned_names(&model.remote.remote.engine.macros);
             // And which mappings drive each control, for the rows' marks
-            // (D561).
+            // (D563).
             let engine = &model.remote.remote.engine;
             let scene_marks = mapping_marks(engine, BankId::Scene, model.controls.as_deref());
             let meta_marks = mapping_marks(engine, BankId::Meta, model.meta.as_deref());
@@ -570,7 +570,7 @@ fn media_words(media: MediaPanel<'_>) -> (String, String) {
 
 /// The names of the scene controls and meta controls that a pinned macro
 /// drives as a whole (not one component).
-/// The marks of the mappings that drive each control of `bank` (D561):
+/// The marks of the mappings that drive each control of `bank` (D563):
 /// the source's short name for the row, and in full, with its kind and
 /// device, for the tooltip. Empty with no bank.
 fn mapping_marks(

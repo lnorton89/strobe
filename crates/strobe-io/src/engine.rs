@@ -294,7 +294,7 @@ impl Engine {
     // ------------------------------------------------------------ marks
 
     /// The sources that drive each control of `bank`, for the mark on its
-    /// row (D561): one list per control, in mapping order, without repeats.
+    /// row (D563): one list per control, in mapping order, without repeats.
     /// A mapping to a macro counts for the control the macro stands for. A
     /// switched-off mapping counts for nothing, nor does one whose target is
     /// not in this bank, or that could not drive it (an XY pad or a colour
