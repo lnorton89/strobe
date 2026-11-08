@@ -40,7 +40,13 @@ pub struct Rule {
 }
 
 /// The binaries and tooling: nothing in the workspace links them.
-const TOP: [&str; 4] = ["strobe-app", "strobe-bench", "strobe-conventions", "xtask"];
+const TOP: [&str; 5] = [
+    "strobe-app",
+    "strobe-bench",
+    "strobe-conventions",
+    "strobe-forge",
+    "xtask",
+];
 
 /// What draws or opens a window.
 const GRAPHICS: [&str; 6] = ["strobe-gfx", "glow", "glutin", "winit", "egui", "egui_glow"];

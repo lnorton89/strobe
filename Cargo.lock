@@ -3558,6 +3558,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "strobe-forge"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "clap",
+ "image",
+ "serde",
+ "serde_json",
+ "strobe-autocontrol",
+ "strobe-diag",
+ "strobe-gfx",
+ "strobe-scene",
+ "ureq",
+]
+
+[[package]]
 name = "strobe-gfx"
 version = "0.3.0"
 dependencies = [
