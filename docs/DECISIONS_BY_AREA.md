@@ -381,7 +381,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-web
 
-6 decision(s).
+7 decision(s).
 
 - [D524](decisions/D524.md): the website's `/play` sandbox runs Strobe's own player as wasm on WebGL2, scripts in a worker, with no server
 - [D544](decisions/D544.md): what the audit work had skipped: a static C runtime, the imports and the loaded ANGLE checked, the browser engine built, generators that reach the code, and a changelog that can be corrected
@@ -389,6 +389,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D554](decisions/D554.md): the sandbox's scene is its files: pictures added, includes resolved, the picture read back, presets as files
 - [D558](decisions/D558.md): the sandbox generates controls a step per animation frame, on the app's own engine and settings
 - [D559](decisions/D559.md): /play rebuilds its engine when the WebGL context comes back
+- [D564](decisions/D564.md): the sandbox plays cube maps and a still MEDIA picture the visitor adds
 
 ## xtask
 

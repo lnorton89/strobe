@@ -75,7 +75,9 @@ block fails the build rather than rendering an empty section.
   with no controls through progress and Cancel, a lighter scene with its
   controls baked in through review, accept and undo, then the scenes it must
   refuse or leave alone. `play-context.spec.ts` takes the WebGL context away and
-  gives it back (D559).
+  gives it back (D559). `play-parity.spec.ts` plays what the app plays (D554):
+  an include, added pictures for `IMAGES`, a cube map's six faces and a still
+  `MEDIA` picture (D564), the picture read back, and presets.
 
 ## In CI
 

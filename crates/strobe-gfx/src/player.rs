@@ -618,6 +618,60 @@ impl ScenePlayer {
         Ok(())
     }
 
+    /// Replaces cube map `index` (`CUBEMAPS` entry) with faces held in
+    /// memory, each found by its path as the entry writes it, cut, checked
+    /// and uploaded exactly as files from the scene folder are
+    /// ([`assets::cubemap_from_bytes`]). The browser sandbox's way in, as
+    /// [`Self::replace_image`] is for `IMAGES` (W-01). A problem reported
+    /// for that entry at load is withdrawn. On an error the old cube stays.
+    pub fn replace_cubemap(
+        &mut self,
+        index: usize,
+        bytes: impl Fn(&str) -> Option<Vec<u8>>,
+    ) -> Result<(), PlayerError> {
+        let Some(def) = self.def.cubemaps.get(index) else {
+            return Err(PlayerError::Resource(format!(
+                "the scene has no cube map {index}"
+            )));
+        };
+        let cut = assets::cubemap_from_bytes(def, bytes)
+            .map_err(|e| PlayerError::Resource(format!("cube map `{}`: {e}", def.name)))?;
+        let [a, b, c, d, e, f] = &cut.faces;
+        let texture = self
+            .gl
+            .texture_cube(cut.size as i32, [a, b, c, d, e, f].map(Vec::as_slice), true)
+            .map_err(PlayerError::Resource)?;
+        let name = def.name.clone();
+        if let Some(slot) = self.cubemaps.get_mut(index) {
+            *slot = Some(texture);
+        }
+        self.problems.retain(|problem| problem.asset != name);
+        Ok(())
+    }
+
+    /// Shows the still picture in `encoded` (PNG or JPEG) behind `syn_Media`
+    /// as the scene's own `MEDIA`, sampled, flipped and shrunk as its entry
+    /// and a file from the folder would be, decoded and uploaded now with no
+    /// thread: the browser sandbox's way in, whose build has no threads
+    /// (W-01). A scene without `MEDIA` is an error. A problem reported for
+    /// `syn_Media` at load is withdrawn. On an error the old picture stays.
+    pub fn replace_media_still(&mut self, encoded: &[u8]) -> Result<(), PlayerError> {
+        let Some(def) = self.def.media.as_ref() else {
+            return Err(PlayerError::Resource("the scene has no MEDIA".to_string()));
+        };
+        let request = MediaRequest::from_scene(Path::new(""), def);
+        let frame = assets::decode_frame_bytes(encoded, request.vflip)
+            .map_err(|e| PlayerError::Resource(format!("{}: {e}", def.path)))?;
+        let mut still = Media::still(&self.gl, request, frame);
+        if let Some((message, _)) = still.take_failure() {
+            return Err(PlayerError::Resource(format!("{}: {message}", def.path)));
+        }
+        self.media = still;
+        self.incoming = None;
+        self.problems.retain(|problem| problem.asset != "syn_Media");
+        Ok(())
+    }
+
     /// Shows `request` (a picture, or a folder of pictures) behind
     /// `syn_Media` in place of the scene's own. It decodes on a thread of
     /// its own; the old picture stays up until the first new one has landed,

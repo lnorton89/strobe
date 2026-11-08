@@ -131,17 +131,42 @@ pub(crate) fn decode_bytes(bytes: &[u8]) -> Result<image::DynamicImage, String> 
 
 /// Reads the cube map `def` declares, relative to the scene folder `dir`.
 pub fn load_cubemap(dir: &Path, def: &CubemapDef) -> Result<CubeFaces, String> {
+    cubemap_with(def, |path| open(&dir.join(path)))
+}
+
+/// Builds the cube map `def` declares from pictures held in memory, each
+/// found by its path as the entry writes it (`bytes` returns `None` for one
+/// that is not there), cut and checked exactly as [`load_cubemap`] cuts and
+/// checks files: the browser sandbox's way in, where a visitor adds the
+/// faces to the page and no folder exists (W-01).
+pub fn cubemap_from_bytes(
+    def: &CubemapDef,
+    bytes: impl Fn(&str) -> Option<Vec<u8>>,
+) -> Result<CubeFaces, String> {
+    cubemap_with(def, |path| {
+        let found = bytes(path).ok_or_else(|| format!("{path} is not in the scene"))?;
+        decode_bytes(&found)
+            .map(image::DynamicImage::into_rgba8)
+            .map_err(|e| format!("{path}: {e}"))
+    })
+}
+
+/// The cube map `def` declares, each of its paths read by `read`.
+fn cubemap_with(
+    def: &CubemapDef,
+    read: impl Fn(&str) -> Result<RgbaImage, String>,
+) -> Result<CubeFaces, String> {
     if let Some(bad) = def.paths.iter().find(|path| !is_folder_relative(path)) {
         return Err(format!(
             "`{bad}` must be a relative path inside the scene folder"
         ));
     }
     let faces = match def.paths.as_slice() {
-        [single] => split_single(open(&dir.join(single))?),
+        [single] => split_single(read(single)?),
         paths if paths.len() == 6 => {
             let mut images = Vec::with_capacity(6);
             for path in paths {
-                images.push(open(&dir.join(path))?);
+                images.push(read(path)?);
             }
             join_faces(images)
         }
@@ -347,9 +372,22 @@ pub fn sequence_edge(first: (u32, u32), count: usize, budget: usize) -> u32 {
     edge.clamp(MIN_SEQUENCE_EDGE.min(long), long)
 }
 
+/// Decodes one picture held in memory as [`decode_frame`] decodes a file:
+/// shrunk to [`MAX_MEDIA_EDGE`] and flipped upright if asked. A still
+/// `MEDIA` picture the browser sandbox's visitor added (W-01).
+pub fn decode_frame_bytes(bytes: &[u8], vflip: bool) -> Result<Frame, String> {
+    let image = decode_bytes(bytes)?.into_rgba8();
+    Ok(frame_within(image, vflip, MAX_MEDIA_EDGE))
+}
+
 /// Decodes one picture, shrinking it so its long side is at most `edge`.
 fn decode_frame_within(path: &Path, vflip: bool, edge: u32) -> Result<Frame, String> {
-    let mut image = open(path)?;
+    Ok(frame_within(open(path)?, vflip, edge))
+}
+
+/// `image` as a frame: shrunk so its long side is at most `edge`, and
+/// flipped upright if asked.
+fn frame_within(mut image: RgbaImage, vflip: bool, edge: u32) -> Frame {
     let (w, h) = image.dimensions();
     if w.max(h) > edge {
         let scale = edge as f32 / w.max(h) as f32;
@@ -361,11 +399,11 @@ fn decode_frame_within(path: &Path, vflip: bool, edge: u32) -> Result<Frame, Str
         imageops::flip_vertical_in_place(&mut image);
     }
     let (width, height) = image.dimensions();
-    Ok(Frame {
+    Frame {
         width,
         height,
         rgba: image.into_raw(),
-    })
+    }
 }
 
 /// Starts decoding `request` on a thread of its own and returns the
@@ -558,6 +596,78 @@ mod tests {
                 "slot {slot}: the bottom row is picture {source}'s top row"
             );
         }
+        Ok(())
+    }
+
+    #[test]
+    fn faces_in_memory_cut_and_flip_as_files_do() -> Result<()> {
+        let scratch = Scratch::new("bytes")?;
+        let names = ["px", "nx", "py", "ny", "pz", "nz"];
+        let mut held = Vec::new();
+        for (i, name) in names.iter().enumerate() {
+            let mut face = solid(2, 2, [i as u8 * 40, 0, 0, 255]);
+            face.put_pixel(0, 1, Rgba([0, 9, 0, 255]));
+            let file = scratch.0.join(format!("{name}.png"));
+            face.save(&file)?;
+            held.push((format!("faces/{name}.png"), std::fs::read(&file)?));
+        }
+        let paths: Vec<String> = names.iter().map(|n| format!("faces/{n}.png")).collect();
+        let refs: Vec<&str> = paths.iter().map(String::as_str).collect();
+        let lookup = |path: &str| {
+            held.iter()
+                .find(|(name, _)| name == path)
+                .map(|(_, bytes)| bytes.clone())
+        };
+        let mut def = cube(&refs);
+        let disk_def = cube(
+            &names
+                .iter()
+                .map(|n| format!("{n}.png"))
+                .collect::<Vec<_>>()
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+        );
+        let disk = load_cubemap(&scratch.0, &disk_def).map_err(|e| anyhow!(e))?;
+        let memory = cubemap_from_bytes(&def, lookup).map_err(|e| anyhow!(e))?;
+        assert_eq!(memory, disk, "the same six faces either way");
+        def.vflip = true;
+        let mut flipped_disk = disk_def.clone();
+        flipped_disk.vflip = true;
+        assert_eq!(
+            cubemap_from_bytes(&def, lookup).map_err(|e| anyhow!(e))?,
+            load_cubemap(&scratch.0, &flipped_disk).map_err(|e| anyhow!(e))?,
+            "and flipped alike"
+        );
+        let short = cubemap_from_bytes(&def, |path: &str| {
+            (!path.ends_with("nz.png")).then(|| lookup(path)).flatten()
+        });
+        assert!(
+            short.is_err_and(|e| e.contains("faces/nz.png") && e.contains("not in the scene")),
+            "a face the page lacks is named"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_still_in_memory_is_the_frame_its_file_makes() -> Result<()> {
+        let scratch = Scratch::new("still")?;
+        let file = scratch.0.join("still.png");
+        let mut picture = solid(3, 2, [10, 20, 30, 255]);
+        picture.put_pixel(0, 0, Rgba([200, 0, 0, 255]));
+        picture.save(&file)?;
+        let bytes = std::fs::read(&file)?;
+        for vflip in [false, true] {
+            assert_eq!(
+                decode_frame_bytes(&bytes, vflip).map_err(|e| anyhow!(e))?,
+                decode_frame(&file, vflip).map_err(|e| anyhow!(e))?,
+                "vflip {vflip}"
+            );
+        }
+        assert!(
+            decode_frame_bytes(&[1, 2, 3], true).is_err(),
+            "bytes that are no picture are an error"
+        );
         Ok(())
     }
 
