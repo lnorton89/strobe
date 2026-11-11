@@ -13,6 +13,102 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 Nothing yet — the latest release is the tip of `master`.
 
+## [0.4.0] - 2026-11-11
+
+### Added
+
+- the sandbox plays cube maps and a still MEDIA picture the visitor adds (D564) ([`d6d5374`](https://github.com/lnorton89/strobe/commit/d6d53748252b89f2ce0ae4af1a899aea13ddb856))
+- a short dropdown shows its options side by side, and a mapped control says so on its row (D563) ([`b572418`](https://github.com/lnorton89/strobe/commit/b572418a3660082c4f0f88137a6f45d3e00ec32e))
+- /play makes scenes from a picture ([`a304b47`](https://github.com/lnorton89/strobe/commit/a304b476faae46ce7eaf9add72cce580ea4849f4))
+- /play generates controls for a scene, with progress, Cancel, the app's review and Undo ([`a6c61e3`](https://github.com/lnorton89/strobe/commit/a6c61e3e71006141e0981b9a782946996699d2e6))
+- generating controls runs a step at a time, and the sandbox's engine can run it between frames ([`3c980c0`](https://github.com/lnorton89/strobe/commit/3c980c0470cd671f5c70f849bfdc4fb9450bbd41))
+- the roadmap page has jump links to Now, Next and Known gaps ([`bc46d77`](https://github.com/lnorton89/strobe/commit/bc46d771f7a20fcf4d499362fb9061ebc7d81ed4))
+- /play says what it is below the sandbox ([`3db2e1b`](https://github.com/lnorton89/strobe/commit/3db2e1b79208e036dd328a4b63a28236c6299b34))
+- scene cards open their scene in /play, and titles no longer truncate ([`2268f86`](https://github.com/lnorton89/strobe/commit/2268f86ddb75fba3fd67e3d425f68780d12c3031))
+- the note naming a document's source file moves below the document ([`051a19f`](https://github.com/lnorton89/strobe/commit/051a19f585cce0ea8e46931775e6ad28841b2b61))
+- long documents keep a readable measure and have contents on a phone ([`b06f06c`](https://github.com/lnorton89/strobe/commit/b06f06c9f14b7960f75f0f046e73aaebe7c01d63))
+- site tables stack on a phone, so the last column is not off screen ([`6ee8686`](https://github.com/lnorton89/strobe/commit/6ee8686b1899eaa5cdcaaad51626782d76446799))
+- the home page shows measured frame times, read from BENCHMARKS.md ([`a21c9ed`](https://github.com/lnorton89/strobe/commit/a21c9ed487b976f3354476684b18ee5372f80797))
+- the home hero puts Download and the browser sandbox first ([`36389ec`](https://github.com/lnorton89/strobe/commit/36389ecd5921e8d4095deb986a68dedcb0194283))
+- the download page offers the current zip by name, with its size and checksum ([`95dc591`](https://github.com/lnorton89/strobe/commit/95dc5916210195e8edb287e17d5eb4bd86df18b0))
+- the site's social cards are files rendered by Metaplate 0.8.2 (D557) ([`9475e7c`](https://github.com/lnorton89/strobe/commit/9475e7ca8d6ac5733f07a9f66fee805ac6faf2ff))
+- the computer and display stay awake while the output is fullscreen (D556) ([`a9f29f9`](https://github.com/lnorton89/strobe/commit/a9f29f9e71554ed15360a0a543417d1b49327858))
+- the /play sandbox plays a scene's pictures, includes, textureFinalPass and presets as the app does (D554) ([`2f1f37d`](https://github.com/lnorton89/strobe/commit/2f1f37d309d7e7589cbede55463bbe972df630f7))
+- Shadertoy cube-map inputs become scene cube maps, and the keyboard reads 256x3 with every key up (D553) ([`efdad8f`](https://github.com/lnorton89/strobe/commit/efdad8fd72f874d7d17ce6b84785e44e2aa9f616))
+
+### Fixed
+
+- /play recovers from a lost WebGL context ([`ed52ec4`](https://github.com/lnorton89/strobe/commit/ed52ec4ff4966b1ad6507b580832f87e4adde45b))
+- /play's review lets a range be typed, a negative number included ([`0af23ff`](https://github.com/lnorton89/strobe/commit/0af23ffd61b24f73117624c4d473f66bad526287))
+- /play's status line says Compiled only after a compile has succeeded ([`abed0a0`](https://github.com/lnorton89/strobe/commit/abed0a0fe9e80757fccae72d9a3f24ca8bf7dc94))
+- the download button keeps its label on one line on a phone ([`0e6464c`](https://github.com/lnorton89/strobe/commit/0e6464c7801b5bb32523ce3bf22933b951893ebe))
+- the header's version chip waits for the width to hold it beside the nav ([`e65746d`](https://github.com/lnorton89/strobe/commit/e65746d3ecc6c29fe5b82d6f4ca68243685123ff))
+- scene cards clamp long descriptions and drop the MIT and Strobe credit lines ([`c5959ea`](https://github.com/lnorton89/strobe/commit/c5959eab68859d17bed3118c2853d7e33d7d06e2))
+- the architecture social card no longer counts fifteen crates ([`34ec888`](https://github.com/lnorton89/strobe/commit/34ec8881d30794ab5cd37593e39c947c87e5d1dd))
+- the architecture page counts its crates instead of saying fifteen ([`6702419`](https://github.com/lnorton89/strobe/commit/6702419162ec62e535ae9be7af4f4f073d4dbcca))
+- the architecture blurb no longer counts fifteen crates ([`8120814`](https://github.com/lnorton89/strobe/commit/81208145fbaa8e877ac60bfce61dcdca5105495e))
+- the home screenshot's caption names the scene it shows ([`23dbb2a`](https://github.com/lnorton89/strobe/commit/23dbb2a0fc65ded888ab90a4a32112422c5bbe2d))
+- the site's prefetches no longer log eight 404s on every page load ([`1f565c7`](https://github.com/lnorton89/strobe/commit/1f565c7bc4496088e1447f35a7c73fed0d601da6))
+- the site reads the release once per build and again in the browser (D557) ([`50bd548`](https://github.com/lnorton89/strobe/commit/50bd548871c2d35df9523a8459d799f000600540))
+- the site's package says source-available, master, and no version of its own ([`a14bc06`](https://github.com/lnorton89/strobe/commit/a14bc063ace4f313135b9a663e0a5f8370c7a109))
+- self-host the site's fonts from @fontsource, so a build needs no font service ([`36cc1b2`](https://github.com/lnorton89/strobe/commit/36cc1b2016371ed4806fd83f228d67237d1b5119))
+- --diagnose raises its box only when nothing reads its output, so a piped rc harness run ends (D551) ([`17eb901`](https://github.com/lnorton89/strobe/commit/17eb9011cb6c4d4a0aa7019d95024042486122f5))
+
+### Performance
+
+- a hand-loaded scene compiles in the background where the driver can, and the output plays on (D555) ([`8a954cf`](https://github.com/lnorton89/strobe/commit/8a954cfd2d8399224508bf31dbda7cdc50e2e015))
+
+### Changed
+
+- the GLSL tokenizer and the pass markers move to strobe-scene, so autocontrol no longer needs the importer ([`1e9a24a`](https://github.com/lnorton89/strobe/commit/1e9a24a4782b09068e8720c7748927feb1a49cfa))
+
+### Documentation
+
+- U-11's decision is D563, since #107 took D561 ([`61e27b2`](https://github.com/lnorton89/strobe/commit/61e27b2313ec9fb295d3d04bf33faacc707d7715))
+- say which scenes CI takes through Generate controls ([`642bc28`](https://github.com/lnorton89/strobe/commit/642bc28d508dd65c262aa4d924ff611fcdd1b3ee))
+- record D558, generating controls in the sandbox a step per animation frame ([`eb7f093`](https://github.com/lnorton89/strobe/commit/eb7f093f10350391689f91640ddd0b521545b00d))
+- the README's opening and performance section say what the site now says ([`cac3416`](https://github.com/lnorton89/strobe/commit/cac34168c89ce496ee1bbb7b9dd6f834074e9806))
+- record D557, the site lane in CLAUDE.md, and the site's README ([`f70858f`](https://github.com/lnorton89/strobe/commit/f70858f5c5983e4ef3a332a96c09deb1d88745aa))
+- rendered docs drop the old-hardware wording ([`5bb0e78`](https://github.com/lnorton89/strobe/commit/5bb0e78392ddf1313005bea8230a953042901b55))
+- the roadmap social card is shorter ([`d5713ec`](https://github.com/lnorton89/strobe/commit/d5713ecbf4b02043fdfbf01d52e30ebf67b08e36))
+- the compatibility social card is shorter ([`4deb083`](https://github.com/lnorton89/strobe/commit/4deb0830d79d3729c3bb7530ae4583c54494543c))
+- the play social card is shorter ([`6ec6801`](https://github.com/lnorton89/strobe/commit/6ec68010aa3740c91cff7379b020cae52c5c4f90))
+- the scenes social card drops MIT licensed ([`184f914`](https://github.com/lnorton89/strobe/commit/184f9144663f2b9f1121e2eddc6d7fdca3b451fb))
+- the guide social card is shorter ([`675c729`](https://github.com/lnorton89/strobe/commit/675c72924399a7fa8639cc2abed87c2cba0b6cb3))
+- the download social card is shorter ([`e626d49`](https://github.com/lnorton89/strobe/commit/e626d49473e0c0f2dab1a142f53101803548bdd7))
+- the home social card says what Strobe is ([`5c92bd3`](https://github.com/lnorton89/strobe/commit/5c92bd3cfcbb698e4875159e7f9a5eeea54c9895))
+- the 404 page says plainly that nothing is there ([`67b52d7`](https://github.com/lnorton89/strobe/commit/67b52d736eb28371342a02d744e812855562b3b7))
+- the roadmap page's summary and description drop their em dashes ([`a18d550`](https://github.com/lnorton89/strobe/commit/a18d55034c3b43c048bf3b1038aface0dd74fe1e))
+- the compatibility page's note names its file ([`735ab77`](https://github.com/lnorton89/strobe/commit/735ab7743c8df928b5c81558207bc5df9a0af398))
+- the guide page stops repeating the document's own first line ([`2cdd9f7`](https://github.com/lnorton89/strobe/commit/2cdd9f792aeb1b811a2d3b2c3e3b5f870e479c74))
+- the scenes page is titled for what it is and states the licence ([`162a2f3`](https://github.com/lnorton89/strobe/commit/162a2f3f932d15465cb6475fbaf45d4fc4057259))
+- the download page states the GPU floor and the licence accurately ([`861935a`](https://github.com/lnorton89/strobe/commit/861935a69ac7744a8abe212b3f1cacfb8a5090f0))
+- the site's title, description and footer say source-available ([`6f477f4`](https://github.com/lnorton89/strobe/commit/6f477f44f20a6d0a6956607a903f6b55cbff8cbd))
+- the home page's status says what is run, what is not verified, and the licence ([`a2027ec`](https://github.com/lnorton89/strobe/commit/a2027ecf5472f98be1dbfd7fa21b3600be327316))
+- the Synesthesia comparison says Strobe is independent of its makers ([`f463b3e2`](https://github.com/lnorton89/strobe/commit/f463b3e2f4010b1775ec401fe1153f77e0eb198a))
+- the home page's scene library blurb says what the scenes are ([`ef1adc5`](https://github.com/lnorton89/strobe/commit/ef1adc5f5551f1768e63b5c4c9f67158f6246f16))
+- the home page's features are six plain paragraphs, not eight icon cards ([`7257a38`](https://github.com/lnorton89/strobe/commit/7257a38e6d9eb7b14de6a78a135ec38a28f71569))
+- the home page says what Strobe is, without the line about old laptops ([`c556a7c`](https://github.com/lnorton89/strobe/commit/c556a7cdf8f0157ae4ecc61b1fc20828c8c52c48))
+- on the T480 a hand load on ANGLE goes from a 3.6 s freeze to an 89 ms worst gap (D555) ([`b663ff6`](https://github.com/lnorton89/strobe/commit/b663ff6471c1be731f4f93f4a6275c2532913142))
+- D553, I-06 built and the Needs-work bin closed, with Shadertoy's cube and keyboard layouts recorded ([`c4b7899`](https://github.com/lnorton89/strobe/commit/c4b7899a5e24fd0778f9d35f8807e34640dd69e8))
+- v0.3.0's own archives passed the rc harness on LIGHTNING, the first release through the approval gate (D548) ([`cc47bd6`](https://github.com/lnorton89/strobe/commit/cc47bd6b47329706fb84c448f071876e96e4c060))
+
+### Internal
+
+- version 0.4.0 ([`58d1df6`](https://github.com/lnorton89/strobe/commit/58d1df6f037f05514c6a10a0ef8f83d36d08927c))
+- review pull requests with Claude Code on the Max plan, and answer @claude ([`391a90d`](https://github.com/lnorton89/strobe/commit/391a90d7b44684768e85f86214c88e3f1bb2135f))
+- the site lane runs every /play spec, not the smoke test alone (D552) ([`8a27da3`](https://github.com/lnorton89/strobe/commit/8a27da3f60d6b8b057cc3fab93f45c0f0bce2b7d))
+- the site job checks out the whole history its activity-feed tests read (D552) ([`6bff0c5`](https://github.com/lnorton89/strobe/commit/6bff0c5910189b1cc4e87b9eaef3446e6ae62025))
+- build the website and its wasm engine and play /play in CI, as the site lane (D552) ([`2d27d62`](https://github.com/lnorton89/strobe/commit/2d27d620ac550b67ce8742c560ab7d06afb225c9))
+
+### Tests
+
+- the sandbox's generate tests name their fixtures by folder ([`e38f097`](https://github.com/lnorton89/strobe/commit/e38f0977226aa44a2849c9c41f2eb2afc0896bcf))
+- /play's specs run one worker at a time, since the preset spec fails beside another on Windows ([`e1105a6`](https://github.com/lnorton89/strobe/commit/e1105a66d8de6c0dbb6181f7fac724dd27afe2ee))
+- the site's copy cannot call itself open source or sell old laptops ([`b1bb77f`](https://github.com/lnorton89/strobe/commit/b1bb77fac5db54ed0efaaea8182051555794cb93))
+- the motion spec looks for the status line the home page has ([`3b3bad5`](https://github.com/lnorton89/strobe/commit/3b3bad5fdc565be85e5043a42490f5dd26ac3ab6))
+- the cube_map fixture's turn shows without its faces, so the control engine finds its speed ([`8c790d4`](https://github.com/lnorton89/strobe/commit/8c790d475f863734df304ef08bf9f07269fc0b18))
+
 ## [0.3.0] - 2026-11-05
 
 ### Added
@@ -831,7 +927,8 @@ Nothing yet — the latest release is the tip of `master`.
 - snapshot after usage-limit interruption ([`2bc621b`](https://github.com/lnorton89/strobe/commit/2bc621bcc4eb79d6aa86421cf371a9921c91caf1))
 - snapshot after usage-limit interruption ([`58e9dd9`](https://github.com/lnorton89/strobe/commit/58e9dd96d29e4bb4f2951e553da57788399022b9))
 
-[Unreleased]: https://github.com/lnorton89/strobe/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/lnorton89/strobe/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/lnorton89/strobe/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/lnorton89/strobe/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/lnorton89/strobe/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/lnorton89/strobe/releases/tag/v0.1.0
