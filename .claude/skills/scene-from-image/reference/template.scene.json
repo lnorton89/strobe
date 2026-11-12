@@ -1,0 +1,20 @@
+{
+  "TITLE": "Template",
+  "CREDIT": "Strobe interpretation of <what the artwork is>",
+  "DESCRIPTION": "<What it shows, then what moves, then what the music does, in plain sentences.> Procedural, no reference media.",
+  "PASSES": [
+    { "TARGET": "clock", "WIDTH": 2, "HEIGHT": 1, "FLOAT": true, "DOUBLE_BUFFER": true, "WRAP": "clamp", "FILTER": "nearest", "FULL_PRECISION": true }
+  ],
+  "CONTROLS": [
+    { "NAME": "speed", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 3.0, "DEFAULT": 1.0, "PARAMS": 0.03, "DESCRIPTION": "Overall pace of everything that moves. At zero the scene holds still.", "UI_GROUP": "motion" },
+    { "NAME": "spin", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 3.0, "DEFAULT": 1.0, "PARAMS": 0.03, "DESCRIPTION": "How fast the wheel turns. At zero it holds still.", "UI_GROUP": "motion" },
+    { "NAME": "size", "TYPE": "slider smooth", "MIN": 0.5, "MAX": 1.5, "DEFAULT": 1.0, "PARAMS": 0.03, "DESCRIPTION": "Size of the wheel.", "UI_GROUP": "shape" },
+    { "NAME": "weight", "TYPE": "slider smooth", "MIN": 0.5, "MAX": 1.8, "DEFAULT": 1.0, "PARAMS": 0.03, "DESCRIPTION": "Width of the pen.", "UI_GROUP": "shape" },
+    { "NAME": "wobble", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 1.0, "DEFAULT": 0.5, "PARAMS": 0.03, "DESCRIPTION": "How unsteady the hand is. At zero every line is ruler-straight.", "UI_GROUP": "shape" },
+    { "NAME": "ink_color", "TYPE": "color smooth", "DEF_COLOR": [0.94, 0.95, 1.0], "UI_GROUP": "color" },
+    { "NAME": "glow", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 2.0, "DEFAULT": 1.0, "PARAMS": 0.03, "DESCRIPTION": "The halo the paint throws onto the panel. At zero there is none.", "UI_GROUP": "color" },
+    { "NAME": "brightness", "TYPE": "slider smooth", "MIN": 0.4, "MAX": 1.6, "DEFAULT": 1.0, "PARAMS": 0.03, "DESCRIPTION": "Overall brightness.", "UI_GROUP": "color" },
+    { "NAME": "reactivity", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 2.0, "DEFAULT": 0.8, "PARAMS": 0.03, "DESCRIPTION": "How strongly the music moves everything. At zero the scene ignores it.", "UI_GROUP": "audio" }
+  ],
+  "TAGS": ["hand-drawn", "audio-reactive"]
+}

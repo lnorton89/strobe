@@ -1,0 +1,36 @@
+[package]
+name = "strobe-forge"
+description = "Scene forge (D562): checks a scene the way the scene-from-image skill asks (frames, sheet, gates, timing, controls at their extremes) and runs the reproducible picture-to-scene LLM loop."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+publish = false
+
+[[bin]]
+name = "strobe-forge"
+path = "src/main.rs"
+
+[features]
+# The HTTP client for `make` (ureq + rustls). Like strobe-shadertoy's `net`,
+# it is the only part that needs a C compiler (ring), so the Windows
+# cross-check from Linux builds this crate without it; `check` and the loop
+# itself are plain Rust either way.
+default = ["llm"]
+llm = ["dep:ureq"]
+
+[dependencies]
+strobe-scene.workspace = true
+strobe-gfx = { workspace = true, features = ["native"] }
+strobe-autocontrol.workspace = true
+strobe-diag.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+image.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+base64.workspace = true
+ureq = { workspace = true, optional = true }
+
+[lints]
+workspace = true

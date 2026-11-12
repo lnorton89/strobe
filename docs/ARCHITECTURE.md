@@ -19,6 +19,7 @@ crates/
 ├── strobe-audio        FFT, bands, onsets, BPM → the syn_* values; cpal capture thread
 ├── strobe-script       QuickJS host for the Synesthesia JavaScript API
 ├── strobe-bench        Benchmark + visual regression frames (headless or hidden-window context)
+├── strobe-forge        Scene forge: checks a scene (frames, sheet, gates, timing, controls) and runs the picture-to-scene LLM loop (D562)
 ├── strobe-conventions  The house rules as tests (headers, unsafe boundary, GL owners, driver queries, crate layers, toolchain pin, docs links, README gaps)
 ├── strobe-diag         Logger, session context, panic hook, native crash capture
 ├── strobe-shadertoy    Shadertoy export JSON → scene folder (id parser, model, dialect rewrite, converter, strobe-import)
@@ -53,6 +54,7 @@ flowchart TD
     script & audio & io & gfx --> scene
     scene --> ssf
     bench[strobe-bench] --> gfx & scene & diag
+    forge[strobe-forge] --> gfx & scene & autocontrol & diag
     web[strobe-web] --> gfx & audio & scene & autocontrol
 ```
 
