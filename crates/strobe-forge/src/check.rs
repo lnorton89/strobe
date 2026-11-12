@@ -116,6 +116,10 @@ const TIMING_BATCHES: usize = 3;
 const UNSTEADY: f64 = 2.0;
 /// The size timing renders at: the skill's budget is stated for 1080p.
 const TIMING_SIZE: [i32; 2] = [1920, 1080];
+/// The skill's step 5 budget, ms a frame at [`TIMING_SIZE`] (stated for
+/// LIGHTNING's RX 580). Over it is a warning, not a failure: the number
+/// depends on the machine, and the skill allows a stated reason.
+const BUDGET_MS: f64 = 2.5;
 
 /// How the gates sampled the scene.
 #[derive(Debug, Clone, Serialize)]
@@ -299,8 +303,8 @@ impl<'a> Stage<'a> {
     }
 
     /// From black, renders [`WARM`] seconds of frames ending at `time` with
-    /// `defs` as the controls, pressing `press` a quarter second before the
-    /// end, and returns the last frame.
+    /// `defs` as the controls, pressing `press` [`PRESS_LEAD`] seconds
+    /// before the end, and returns the last frame.
     fn render_at(
         &mut self,
         defs: &[ControlDef],
@@ -517,6 +521,12 @@ pub(crate) fn check(
     if options.timing {
         match time_scene(gl, caps, &scene) {
             Ok(timing) => {
+                if !timing.unsteady && timing.mean_ms > BUDGET_MS {
+                    report.warnings.push(format!(
+                        "over budget: {:.2} ms a frame at {}x{} on {}, over the skill's {BUDGET_MS} ms",
+                        timing.mean_ms, timing.size[0], timing.size[1], timing.renderer
+                    ));
+                }
                 if timing.unsteady {
                     report.warnings.push(format!(
                         "timing unsteady: batch means {} ms differ by more than {UNSTEADY}x, so other GPU work was running",
@@ -765,8 +775,7 @@ fn probe_controls(
 fn time_scene(gl: &Gl, caps: &Caps, scene: &SceneFolder) -> Result<Timing> {
     let (player, _) = compile(gl, caps, scene, TIMING_SIZE).map_err(anyhow::Error::msg)?;
     let mut stage = Stage::new(gl, player, scene);
-    let bank = ControlBank::new(scene.def.controls.clone())?;
-    let mut bank = bank;
+    let mut bank = ControlBank::new(scene.def.controls.clone())?;
     let mut batches: Vec<Vec<f64>> = (0..TIMING_BATCHES)
         .map(|_| Vec::with_capacity(TIMING_FRAMES as usize))
         .collect();
@@ -1038,9 +1047,10 @@ pub(crate) fn markdown(report: &Report) -> String {
         );
         let _ = writeln!(
             out,
-            "| flat (warning) | {} | luma spread {:.4} | under 0.012 |",
+            "| flat (warning) | {} | luma spread {:.4} | under {} |",
             mark(g.flat),
-            g.spread
+            g.spread,
+            gate::FLAT
         );
         let _ = writeln!(
             out,
@@ -1051,15 +1061,17 @@ pub(crate) fn markdown(report: &Report) -> String {
         );
         let _ = writeln!(
             out,
-            "| frozen | {} | largest change {:.4} | under 0.0008 fails |",
+            "| frozen | {} | largest change {:.4} | under {} fails |",
             mark(g.frozen),
-            g.change
+            g.change,
+            gate::FROZEN
         );
         let _ = writeln!(
             out,
-            "| flash | {} | {:.2} a second over a quarter | over 3 fails |\n",
+            "| flash | {} | {:.2} a second over a quarter | over {} fails |\n",
             mark(g.flashing),
-            g.flashes_per_second
+            g.flashes_per_second,
+            gate::FLASH_LIMIT
         );
     }
     if !report.frames.is_empty() {

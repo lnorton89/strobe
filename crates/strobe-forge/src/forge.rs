@@ -153,7 +153,16 @@ pub(crate) fn make(
     let mut turn = prompt::first(picture);
     for round in 0..=options.rounds {
         let dir = out.join("rounds").join(round.to_string());
-        let result = attempt(author, checker, turn, &dir, options.repairs, &mut log)?;
+        // A provider failure (timeout, overload, refusal, a cut-off answer)
+        // ends the loop, not the run: the scene that stands is still written
+        // below, with the log saying why it stopped.
+        let result = match attempt(author, checker, turn, &dir, options.repairs, &mut log) {
+            Ok(result) => result,
+            Err(error) => {
+                log.push(format!("round {round}: stopped: {error:#}"));
+                break;
+            }
+        };
         let standing_passed = standing.as_ref().is_some_and(|(_, _, v)| v.passed);
         let note = match result {
             Some((candidate, verdict))
@@ -415,6 +424,39 @@ mod tests {
             author.turns.len() == 4,
             "request, critique, critique, one repair: {}",
             author.turns.len()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_failed_request_keeps_the_scene_that_stands() -> Result<()> {
+        let out = crate::fixture::tempdir("loop-api-error")?;
+        // One good reply, then the fake fails the way a timed-out request does.
+        let mut author = Fake::new(&[fixture::reply(fixture::GLSL)]);
+        let outcome = make(
+            &mut author,
+            &mut FakeChecker,
+            &skill(),
+            picture(),
+            &out,
+            MakeOptions {
+                rounds: 2,
+                repairs: 1,
+            },
+        )?;
+        ensure!(
+            outcome.passed && outcome.round == Some(0),
+            "round 0 still stands: {outcome:?}"
+        );
+        let kept = std::fs::read_to_string(out.join("main.glsl"))?;
+        ensure!(
+            kept.trim() == fixture::GLSL.trim(),
+            "the passing scene is written: {kept}"
+        );
+        let log = std::fs::read_to_string(out.join("forge-log.md"))?;
+        ensure!(
+            log.contains("stopped: the fake ran out of replies"),
+            "the log says why it stopped: {log}"
         );
         Ok(())
     }

@@ -172,17 +172,36 @@ pub(crate) fn check_other(dir: &Path, here: Dialect, context: &str) -> DialectRe
 /// hang.
 const DEADLINE: std::time::Duration = std::time::Duration::from_secs(240);
 
+/// Reads all of `pipe` on a thread of its own.
+fn drain<R: std::io::Read + Send + 'static>(pipe: Option<R>) -> std::thread::JoinHandle<Vec<u8>> {
+    std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        if let Some(mut pipe) = pipe {
+            // A read error ends the capture early; what was read still counts.
+            let _ = pipe.read_to_end(&mut bytes);
+        }
+        bytes
+    })
+}
+
 /// Runs `command` with its output captured, killing it past [`DEADLINE`].
+///
+/// Both pipes are read while the child runs: a child whose compile log or
+/// stderr fills the pipe buffer (4 KB on Windows) would otherwise block on
+/// its write, never exit, and turn a real GLSL ES failure into a timeout's
+/// "not checked".
 fn run_with_deadline(command: &mut std::process::Command) -> Result<std::process::Output, String> {
     let mut child = command
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| e.to_string())?;
+    let stdout = drain(child.stdout.take());
+    let stderr = drain(child.stderr.take());
     let start = std::time::Instant::now();
-    loop {
+    let status = loop {
         match child.try_wait() {
-            Ok(Some(_)) => return child.wait_with_output().map_err(|e| e.to_string()),
+            Ok(Some(status)) => break status,
             Ok(None) if start.elapsed() > DEADLINE => {
                 // Best effort: a child that cannot be killed or reaped has already
                 // gone, and the answer is "not checked" either way.
@@ -193,7 +212,12 @@ fn run_with_deadline(command: &mut std::process::Command) -> Result<std::process
             Ok(None) => std::thread::sleep(std::time::Duration::from_millis(50)),
             Err(error) => return Err(error.to_string()),
         }
-    }
+    };
+    Ok(std::process::Output {
+        status,
+        stdout: stdout.join().unwrap_or_default(),
+        stderr: stderr.join().unwrap_or_default(),
+    })
 }
 
 /// The `dialect` subcommand: compile `dir` on a context of `api` and print
@@ -242,4 +266,43 @@ pub(crate) fn child(dir: &Path, gles: bool, headless: bool) -> Result<()> {
     };
     println!("{}", serde_json::to_string(&result)?);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::{anyhow, ensure};
+
+    /// A child that writes far more than a pipe buffer holds still finishes
+    /// and is read whole, instead of blocking until the deadline.
+    #[test]
+    fn a_child_with_a_long_output_is_read_whole() -> Result<()> {
+        const BYTES: usize = 200_000;
+        let mut command = if cfg!(windows) {
+            let mut c = std::process::Command::new("powershell");
+            c.args([
+                "-NoProfile",
+                "-Command",
+                &format!("[Console]::Out.Write('x' * {BYTES})"),
+            ]);
+            c
+        } else {
+            let mut c = std::process::Command::new("sh");
+            c.args(["-c", &format!("head -c {BYTES} /dev/zero | tr '\0' x")]);
+            c
+        };
+        let start = std::time::Instant::now();
+        let output = run_with_deadline(&mut command).map_err(|e| anyhow!(e))?;
+        ensure!(
+            start.elapsed() < std::time::Duration::from_secs(60),
+            "it finished well before the deadline: {:?}",
+            start.elapsed()
+        );
+        ensure!(
+            output.stdout.len() == BYTES,
+            "all {BYTES} bytes were read, got {}",
+            output.stdout.len()
+        );
+        Ok(())
+    }
 }

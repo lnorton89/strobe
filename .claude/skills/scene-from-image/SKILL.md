@@ -160,6 +160,9 @@ controls, the timing, the last critique list and anything left undone.
 
 ## 6. Share it, only when asked
 
+This step is for an agent session. `strobe-forge make` has no network and
+never shares: a model running there skips it.
+
 A share link publishes the scene, so make one only when the owner asks for
 that piece (see the ground rules). Give the short `/s/<id>` link, never the
 long `#s=` fragment link: the fragment carries the whole scene and runs to

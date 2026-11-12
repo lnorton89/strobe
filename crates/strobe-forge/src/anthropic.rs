@@ -79,11 +79,18 @@ impl Anthropic {
     }
 }
 
-/// Whether `model` takes `fallbacks: "default"` on the Claude API.
+/// Whether `model` takes `fallbacks: "default"` on the Claude API: the
+/// models it is documented for, by exact ID, so a model not on the list
+/// (the first Fable 5, a new one) is not sent a field it may refuse.
 fn takes_fallbacks(model: &str) -> bool {
-    ["claude-opus-5", "claude-fable-5", "claude-sonnet-5-5"]
-        .iter()
-        .any(|prefix| model.starts_with(prefix))
+    [
+        "claude-fable-5-2",
+        "claude-fable-5-1",
+        "claude-opus-5-5",
+        "claude-opus-5",
+        "claude-sonnet-5-5",
+    ]
+    .contains(&model)
 }
 
 /// One turn's parts as Messages API content blocks.
@@ -245,11 +252,13 @@ mod tests {
                 && body["messages"][0]["content"][0]["source"]["media_type"] == "image/jpeg",
             "the image block: {body}"
         );
-        let other = super::body("claude-haiku-5-5", "s", &messages);
-        ensure!(
-            other.get("fallbacks").is_none(),
-            "no fallbacks where not taken: {other}"
-        );
+        for model in ["claude-haiku-5-5", "claude-fable-5"] {
+            let other = super::body(model, "s", &messages);
+            ensure!(
+                other.get("fallbacks").is_none(),
+                "no fallbacks on {model}, which is not documented to take them: {other}"
+            );
+        }
         Ok(())
     }
 

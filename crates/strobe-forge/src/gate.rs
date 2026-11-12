@@ -60,15 +60,15 @@ pub(crate) struct GateResult {
 /// Mean luma under which a picture is almost black.
 pub(crate) const BLACK: f32 = 0.012;
 /// Luma spread under which a lit picture is one flat colour.
-const FLAT: f32 = 0.012;
+pub(crate) const FLAT: f32 = 0.012;
 /// Luma over which a pixel is blown out.
 const BLOWN_PIXEL: f32 = 0.97;
 /// Fraction of blown pixels over which the picture is blown out.
 pub(crate) const BLOWN_SHARE: f32 = 0.5;
 /// Largest change from the first frame under which the scene is frozen.
-const FROZEN: f32 = 0.0008;
+pub(crate) const FROZEN: f32 = 0.0008;
 /// The most flashes a second allowed over a quarter of the screen.
-const FLASH_LIMIT: f32 = 3.0;
+pub(crate) const FLASH_LIMIT: f32 = 3.0;
 
 impl GateResult {
     /// No hard gate failed: not black, not frozen, not flashing (flat and
@@ -210,27 +210,13 @@ pub(crate) fn gate(set: &FrameSet<'_>) -> GateResult {
     per_cell.sort_by(f32::total_cmp);
     let flashes_per_second = per_cell.get(per_cell.len() * 3 / 4).copied().unwrap_or(0.0);
 
-    let mut total = 0.0_f64;
-    let mut squared = 0.0_f64;
-    let mut blown = 0_u64;
-    let mut count = 0_u64;
+    let mut luma = Luma::default();
     for data in set.frames {
-        for px in data.as_chunks::<4>().0 {
-            let v =
-                (0.2126 * f64::from(px[0]) + 0.7152 * f64::from(px[1]) + 0.0722 * f64::from(px[2]))
-                    / 255.0;
-            total += v;
-            squared += v * v;
-            if v > f64::from(BLOWN_PIXEL) {
-                blown += 1;
-            }
-            count += 1;
-        }
+        luma.add(data);
     }
-    let n = count.max(1) as f64;
-    let mean = (total / n) as f32;
-    let spread = ((squared / n - (total / n).powi(2)).max(0.0)).sqrt() as f32;
-    let blown = (blown as f64 / n) as f32;
+    let (mean, blown) = luma.mean_and_blown();
+    let n = luma.count.max(1) as f64;
+    let spread = ((luma.squared / n - f64::from(mean).powi(2)).max(0.0)).sqrt() as f32;
 
     // The most any frame differs from the first, since a loop can end where
     // it began.
@@ -263,22 +249,44 @@ pub(crate) fn gate(set: &FrameSet<'_>) -> GateResult {
     }
 }
 
+/// Running luma sums over RGBA8 pixels: what the black, flat and blown
+/// gates and the per-frame warnings all measure.
+#[derive(Default)]
+struct Luma {
+    total: f64,
+    squared: f64,
+    blown: u64,
+    count: u64,
+}
+
+impl Luma {
+    /// Adds every pixel of `frame`.
+    fn add(&mut self, frame: &[u8]) {
+        for px in frame.as_chunks::<4>().0 {
+            let v =
+                (0.2126 * f64::from(px[0]) + 0.7152 * f64::from(px[1]) + 0.0722 * f64::from(px[2]))
+                    / 255.0;
+            self.total += v;
+            self.squared += v * v;
+            if v > f64::from(BLOWN_PIXEL) {
+                self.blown += 1;
+            }
+            self.count += 1;
+        }
+    }
+
+    /// Mean luma (`0..1`) and blown share so far.
+    fn mean_and_blown(&self) -> (f32, f32) {
+        let n = self.count.max(1) as f64;
+        ((self.total / n) as f32, (self.blown as f64 / n) as f32)
+    }
+}
+
 /// Mean luma (`0..1`) and blown share of one RGBA8 frame.
 pub(crate) fn mean_and_blown(frame: &[u8]) -> (f32, f32) {
-    let mut total = 0.0_f64;
-    let mut blown = 0_u64;
-    let mut count = 0_u64;
-    for px in frame.as_chunks::<4>().0 {
-        let v = (0.2126 * f64::from(px[0]) + 0.7152 * f64::from(px[1]) + 0.0722 * f64::from(px[2]))
-            / 255.0;
-        total += v;
-        if v > f64::from(BLOWN_PIXEL) {
-            blown += 1;
-        }
-        count += 1;
-    }
-    let n = count.max(1) as f64;
-    ((total / n) as f32, (blown as f64 / n) as f32)
+    let mut luma = Luma::default();
+    luma.add(frame);
+    luma.mean_and_blown()
 }
 
 #[cfg(test)]

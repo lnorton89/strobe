@@ -189,8 +189,15 @@ impl CheckArgs {
         if times.iter().any(|t| !t.is_finite() || *t < 0.0) {
             return Err(anyhow!("--times must be seconds, zero or more"));
         }
+        let size: [i32; 2] = [w.trim().parse()?, h.trim().parse()?];
+        if size.iter().any(|side| *side < 1) {
+            return Err(anyhow!(
+                "--size must be at least 1x1 pixels, got {}",
+                self.size
+            ));
+        }
         Ok(check::CheckOptions {
-            size: [w.trim().parse()?, h.trim().parse()?],
+            size,
             times,
             reference,
             out,
