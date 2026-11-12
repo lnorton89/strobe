@@ -184,7 +184,7 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
   const [autoCompile, setAutoCompile] = useState(true);
   const [audioMode, setAudioMode] = useState<AudioMode>("synthetic");
   const [notice, setNotice] = useState<string | null>(null);
-  /** What the scene names that is not here: a picture not added, a cube map. */
+  /** What the scene names that is not here: a picture, cube face or MEDIA picture not added. */
   const [notes, setNotes] = useState<string[]>([]);
   /** What Share made, shown in a box under the toolbar until dismissed. */
   const [shared, setShared] = useState<{
@@ -796,7 +796,7 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
     setActive("main.glsl");
   }
 
-  /** A picture for the scene's IMAGES, kept under its own file name. */
+  /** A picture for the scene's IMAGES, CUBEMAPS or MEDIA, kept under its own file name. */
   async function addImage(file: File) {
     if (!scene) return;
     const name = imageNameFor(file.name);
@@ -1346,16 +1346,16 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
           </button>
           <label
             className="flex cursor-pointer items-center px-3 font-mono text-[11px] uppercase tracking-[0.08em] text-label hover:text-accent-text"
-            title="A picture for the scene's IMAGES (.png or .jpg)"
+            title="Pictures for the scene's IMAGES, CUBEMAPS faces or MEDIA (.png or .jpg); choose several at once for a cube map's six faces"
           >
             Add image
             <input
               type="file"
               accept="image/png,image/jpeg"
+              multiple
               className="hidden"
               onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) void addImage(file);
+                for (const file of Array.from(event.target.files ?? [])) void addImage(file);
                 event.target.value = "";
               }}
             />

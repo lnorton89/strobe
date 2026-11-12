@@ -279,6 +279,9 @@ fn app_frame(gl: &strobe_gfx::gl::Gl, dir: &std::path::Path) -> Result<Vec<u8>> 
     let mut player =
         strobe_gfx::ScenePlayer::new(gl, &caps, &folder, SIZE, strobe_gfx::Options::default())
             .map_err(|e| anyhow!("{e}"))?;
+    // A MEDIA picture decodes on a thread in the app; wait for it, so the
+    // frame does not depend on the disk's speed.
+    player.finish_media_loading();
     let controls = strobe_scene::control::ControlBank::new(folder.def.controls.clone())?;
     let audio: Vec<f32> = strobe_scene::audio::SCALARS
         .iter()
@@ -379,6 +382,85 @@ fn an_include_resolves_against_the_scenes_own_files_as_in_the_app() -> Result<()
     assert!(
         error.contains("main.glsl"),
         "the error is the user's file's: {error}"
+    );
+    Ok(())
+}
+
+/// This crate's own fixture scenes (W-01), which the corpus gate does not
+/// play.
+fn own_fixture(name: &str) -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(name)
+}
+
+/// Every picture in `dir`, as the page holds a visitor's added files.
+fn folder_pictures(dir: &std::path::Path) -> Result<Vec<(String, Vec<u8>)>> {
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(dir)? {
+        let path = entry?.path();
+        if path.extension().is_some_and(|ext| ext == "png")
+            && let Some(name) = path.file_name()
+        {
+            out.push((name.to_string_lossy().into_owned(), std::fs::read(&path)?));
+        }
+    }
+    Ok(out)
+}
+
+#[test]
+fn cube_faces_the_page_adds_draw_as_the_scene_folders_files_do() -> Result<()> {
+    let Some(headless) = headless()? else {
+        return Ok(());
+    };
+    let dir = own_fixture("cube-faces.synScene");
+    let app = app_frame(headless.gl(), &dir)?;
+    let mut sandbox = Sandbox::new(headless.gl().clone(), SIZE, 48_000);
+    let held = folder_pictures(&dir)?;
+    let all: Vec<(&str, Vec<u8>)> = held
+        .iter()
+        .map(|(name, bytes)| (name.as_str(), bytes.clone()))
+        .collect();
+    let with = sandbox_frame(&mut sandbox, &dir, &all)?;
+    assert_eq!(sandbox.notes_json(), "[]", "nothing is missing");
+    assert_eq!(with, app, "the sandbox draws the cube map as the app does");
+
+    let five: Vec<(&str, Vec<u8>)> = all
+        .iter()
+        .filter(|(name, _)| *name != "nz.png")
+        .cloned()
+        .collect();
+    let without = sandbox_frame(&mut sandbox, &dir, &five)?;
+    assert_ne!(without, app, "a face short, the cube reads black");
+    let notes = sandbox.notes_json();
+    assert!(
+        notes.contains("cube map `room`")
+            && notes.contains("nz.png")
+            && notes.contains("Add image"),
+        "the missing face is named: {notes}"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_media_picture_the_page_adds_shows_as_the_scene_folders_file_does() -> Result<()> {
+    let Some(headless) = headless()? else {
+        return Ok(());
+    };
+    let dir = own_fixture("media-still.synScene");
+    let app = app_frame(headless.gl(), &dir)?;
+    let mut sandbox = Sandbox::new(headless.gl().clone(), SIZE, 48_000);
+    let png = std::fs::read(dir.join("still.png"))?;
+    let with = sandbox_frame(&mut sandbox, &dir, &[("still.png", png)])?;
+    assert_eq!(sandbox.notes_json(), "[]", "nothing is missing");
+    assert_eq!(with, app, "the sandbox shows the picture as the app does");
+
+    let without = sandbox_frame(&mut sandbox, &dir, &[])?;
+    assert_ne!(without, app, "without the picture syn_Media reads black");
+    let notes = sandbox.notes_json();
+    assert!(
+        notes.contains("MEDIA reads still.png") && notes.contains("Add image"),
+        "the missing picture is named: {notes}"
     );
     Ok(())
 }

@@ -1,0 +1,3 @@
+{ "TITLE": "Sandbox: media still", "CREDIT": "Strobe",
+  "DESCRIPTION": "Shows a still MEDIA picture behind syn_Media, tinted by syn_MediaType, so a missing or unflipped picture changes the frame.",
+  "MEDIA": { "PATH": "still.png" } }

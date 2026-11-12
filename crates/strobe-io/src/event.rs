@@ -412,6 +412,19 @@ impl Source {
         }
     }
 
+    /// The shortest name a person still knows the source by, for the mark
+    /// on a control's row (D563): `CC 21`, `Note 36`, `Bend`, `PC 5`, or
+    /// the OSC address. The channel and device are in [`Source::label`].
+    pub fn tag(&self) -> String {
+        match self {
+            Self::MidiCc { controller, .. } => format!("CC {controller}"),
+            Self::MidiNote { note, .. } => format!("Note {note}"),
+            Self::MidiPitchBend { .. } => "Bend".to_string(),
+            Self::MidiProgram { program, .. } => format!("PC {program}"),
+            Self::Osc { address } => address.clone(),
+        }
+    }
+
     /// The kind of source for a badge: `MIDI` or `OSC`.
     pub fn badge(&self) -> &'static str {
         if self.is_osc() { "OSC" } else { "MIDI" }
@@ -625,6 +638,52 @@ mod tests {
             .label(),
             "/1/fader1"
         );
+    }
+
+    #[test]
+    fn a_row_tag_is_the_label_without_channel_or_device() {
+        let cases = [
+            (
+                Source::MidiCc {
+                    device: Some("pad".into()),
+                    channel: 3,
+                    controller: 21,
+                },
+                "CC 21",
+            ),
+            (
+                Source::MidiNote {
+                    device: None,
+                    channel: 10,
+                    note: 36,
+                },
+                "Note 36",
+            ),
+            (
+                Source::MidiPitchBend {
+                    device: None,
+                    channel: 1,
+                },
+                "Bend",
+            ),
+            (
+                Source::MidiProgram {
+                    device: None,
+                    channel: 1,
+                    program: 5,
+                },
+                "PC 5",
+            ),
+            (
+                Source::Osc {
+                    address: "/1/fader1".into(),
+                },
+                "/1/fader1",
+            ),
+        ];
+        for (source, tag) in cases {
+            assert_eq!(source.tag(), tag, "{source:?}");
+        }
     }
 
     #[test]

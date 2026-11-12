@@ -22,3 +22,7 @@ aaf0f2e480d17fa32e04458c203afa0e0da5d80a fix: link the C runtime statically, and
 # merged: master had taken D545 for the build trials.
 9657c9cdd9a54481248e7d1be3a5af755d7ec208 feat: other scene folders are searched through their subfolders (D546)
 f97eaa826ebccf519817821be0c54ebdaa545f5b feat: Shadertoy imports go to user-scenes/shadertoy-imports, and the Library renders missing thumbnails (D547)
+
+# #108's decision moved from D561 to D563 before it merged: #107 had
+# taken D561 for the review workflows, and the scene forge D562.
+b572418a3660082c4f0f88137a6f45d3e00ec32e feat: a short dropdown shows its options side by side, and a mapped control says so on its row (D563)

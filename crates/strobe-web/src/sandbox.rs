@@ -657,40 +657,86 @@ fn progress_json(job: &Job) -> String {
     .to_string()
 }
 
-/// Uploads each `IMAGES` picture the page holds, by the entry's path or,
-/// failing that, its file name (the page keeps no folders), and says what
-/// is missing. The player tried the scene folder first, which in the
-/// browser does not exist, so its problems for those entries are dropped;
-/// the ones left are cube maps and `MEDIA`, which the browser cannot load.
+/// A path's file name: the page keeps no folders, so a picture a scene
+/// names by `images/sky.png` is found as `sky.png` too.
+fn base_name(path: &str) -> &str {
+    path.rsplit('/').next().unwrap_or(path)
+}
+
+/// Uploads each picture the scene names that the page holds, found by the
+/// path as written or, failing that, its file name: `IMAGES` entries (D554),
+/// every `CUBEMAPS` entry's faces, and a still `MEDIA` picture (W-01).
+/// Says what is missing or did not load. The player tried the scene folder
+/// first, which in the browser does not exist, so its problems for these
+/// entries are dropped in favour of these notes.
 fn attach_images(
     player: &mut ScenePlayer,
     scene: &SceneFolder,
     asset: &impl Fn(&str) -> Option<Vec<u8>>,
 ) -> Vec<String> {
+    let find = |path: &str| asset(path).or_else(|| asset(base_name(path)));
     let mut notes = Vec::new();
     for (index, image) in scene.def.images.iter().enumerate() {
-        let base = image.path.rsplit('/').next().unwrap_or(&image.path);
-        let found = asset(&image.path).or_else(|| asset(base));
-        match found {
+        match find(&image.path) {
             Some(bytes) => {
                 if let Err(error) = player.replace_image(index, &bytes) {
                     notes.push(format!("image `{}`: {error}", image.name));
                 }
             }
             None => notes.push(format!(
-                "image `{}` reads {base}, which is not in the scene: add it with Add image",
-                image.name
+                "image `{}` reads {}, which is not in the scene: add it with Add image",
+                image.name,
+                base_name(&image.path)
             )),
         }
     }
-    let images: Vec<&str> = scene.def.images.iter().map(|i| i.name.as_str()).collect();
+    for (index, cube) in scene.def.cubemaps.iter().enumerate() {
+        let missing: Vec<&str> = cube
+            .paths
+            .iter()
+            .filter(|path| find(path).is_none())
+            .map(|path| base_name(path))
+            .collect();
+        if !missing.is_empty() {
+            notes.push(format!(
+                "cube map `{}` reads {}, not in the scene: add {} with Add image",
+                cube.name,
+                missing.join(", "),
+                if missing.len() == 1 { "it" } else { "them" }
+            ));
+        } else if let Err(error) = player.replace_cubemap(index, find) {
+            notes.push(error.to_string());
+        }
+    }
+    if let Some(media) = &scene.def.media {
+        match find(&media.path) {
+            Some(bytes) => {
+                if let Err(error) = player.replace_media_still(&bytes) {
+                    notes.push(format!("MEDIA: {error}"));
+                }
+            }
+            None => notes.push(format!(
+                "MEDIA reads {}, not in the scene: add the picture with Add image (a folder of \
+                 pictures plays in the app only)",
+                base_name(&media.path)
+            )),
+        }
+    }
+    let ours: Vec<&str> = scene
+        .def
+        .images
+        .iter()
+        .map(|i| i.name.as_str())
+        .chain(scene.def.cubemaps.iter().map(|c| c.name.as_str()))
+        .chain(std::iter::once("syn_Media"))
+        .collect();
     for problem in player.take_asset_problems() {
-        if images.contains(&problem.asset.as_str()) {
+        if ours.contains(&problem.asset.as_str()) {
             continue;
         }
         notes.push(format!(
-            "`{}` ({}) does not load in the browser yet: cube maps and MEDIA are app-only",
-            problem.asset, problem.path
+            "`{}` ({}): {}",
+            problem.asset, problem.path, problem.message
         ));
     }
     notes
