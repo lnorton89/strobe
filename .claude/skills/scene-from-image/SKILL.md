@@ -157,3 +157,27 @@ rectangles, colours drifted from the paint.
 
 Report back with: the slug, the reading in two lines, the archetype, the
 controls, the timing, the last critique list and anything left undone.
+
+## 6. Share it, only when asked
+
+A share link publishes the scene, so make one only when the owner asks for
+that piece (see the ground rules). Give the short `/s/<id>` link, never the
+long `#s=` fragment link: the fragment carries the whole scene and runs to
+about 10 KB, and handing one over was a rejection.
+
+POST the scene to the site's Worker as the sandbox's Share button does
+(D527). It stores the scene by content hash and answers `201` with
+`{id, url}`:
+
+```bash
+curl -s -X POST https://strobe.lnorton89.workers.dev/api/share \
+  -H 'content-type: application/json' --data-binary @share.json
+```
+
+`share.json` is `{"title": "<TITLE>", "files": {"main.glsl": "…",
+"scene.json": "…"}}`, with each file's text as a JSON string; build it with a
+script rather than by hand. The limit is 256 KB and 16 files
+(`site/worker/scene-store.ts`). Open the returned `url` in a browser and
+wait for the status line to say Compiled before reporting it. Save the link
+next to the scene as `user-scenes/<artist>/<slug>-share-link.txt`. Use the
+fragment link only when the Worker cannot be reached, and say so.
