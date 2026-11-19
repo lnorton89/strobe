@@ -28,6 +28,23 @@ you see. Write the differences as a list. "Looks good" is not an answer.
 - Do the paint colours match the paint (not the photo's room light)? White
   ink drifting lavender, gold going orange, sun going muddy.
 
+## Painterly and all-over work
+
+Each of these was a render on the way to a knife painting, in this order.
+
+- Ribbons or tubes lying on a plaid: strokes too narrow, each with clean
+  sides and a lit lip, and the coat beneath showing between them.
+- A quilt of chips: strokes all about one length, cut square at both ends.
+- Satin or airbrush: broad soft shading across each stroke. Paint is flat
+  colour with crisp furrows.
+- Confetti: every stroke its own colour. Does the palette's share by area
+  match the photo's, earths included, and do colours gather where the
+  painting gathers them?
+- Glass: strokes you can see through, or a veil over part of the frame.
+- Lone ribbons on a finished field: a new coat arriving as scattered
+  strokes, not as a patch being worked.
+- Needles and fur at stroke ends, or pixel blocks in the dry brush.
+
 ## Technical
 
 - Glow clipped into rectangles or seams at cell or bounds edges.
@@ -36,6 +53,8 @@ you see. Write the differences as a list. "Looks good" is not an answer.
   same at every moment?
 - Every control at both extremes: does it change something you can see, and
   does nothing break?
+- Across every hand-over (the frame sweep in the skill): one tall spike is a
+  pop, a plateau is a burst.
 
 ## Motion and music
 

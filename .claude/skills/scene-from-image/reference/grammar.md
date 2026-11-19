@@ -13,6 +13,7 @@ before inventing new ones.
 | Path | Serpents, rivers, vines, tentacles | Walk segments and arcs once to get arc length `s` and signed cross distance `t`; draw in `(s, t)` | Let the path meander across the width |
 | Windows | Several scenes in one painting | Hand-placed rectangles, each a small scene | Extend the outer ones |
 | Field | Scattered motifs with no structure | Jittered cells; each picks a motif by hash and weight | Natural |
+| Coats | Gestural paint with no subject: knife work, brush sweeps, scraped colour | The plane tiled by strokes in a rotated, bent frame (swaths across, strokes end to end along), three such coats stacked, each with its own direction | Natural; stretch the colour zones to the frame |
 
 A figurative piece (a face, a figure, a creature) is usually axial with a
 hand-placed hero: place its parts in normalised painting space from the
@@ -37,6 +38,42 @@ photo, then add the rule-driven parts (hair, fins, ruffs, stars) around it.
 - **Helical ridges** (shells, screws, twisted horns): the ridge coordinate is
   `y - k * x` inside the body, so each lip runs diagonally and passes
   behind the flank. Level ridges read as a pagoda or a Christmas tree.
+
+- **Coats that never pop** (a painting that keeps being painted): a coat
+  that tiles the plane covers everything once its strokes are all down.
+  Lay coat `m` over two generations, so `m` is in its first half, `m - 1`
+  in its second and closing its dry-brush gaps as it goes, and `m - 2` is
+  finished and solid. When `m` steps on, every coat is exactly what the
+  next role draws, and the one that leaves was wholly covered. Three coats
+  is the fewest that works; the dense frame sweep in the skill proves it.
+- **Stroke coordinates for a coat**: `q = rot(angle) * p`, `s = q.x`,
+  `t = q.y - 0.5 * k * s * s` plus a low noise, so the drag turns steadily
+  (a fan) and swaths pinch and swell. Swath is `floor` of `t / width` after
+  a monotonic noise push for uneven widths, stroke is `floor` of `s / length`
+  with a per-swath offset. Add the bristle noise to both before the `floor`:
+  neighbours then comb into each other and a join is a comb, not a rule.
+- **The comb of a brush or knife**: noise sampled at `(t * F, s * small)`,
+  three scales (about 13, 43 and 230 cycles a frame height, the finest
+  capped at `0.3 / pixel`), with `t` pushed by the broadest first so no two
+  furrows are the same width. Its derivative across is the surface tilt,
+  which is all the normal a stroke needs. Keep the diffuse swing small and
+  put most of the tilt in the finest scale, or strokes turn to satin
+  ribbons; break highlights into short runs along `s`, or they turn to
+  rails.
+- **Families, not confetti**: anything a stroke picks by hash alone (which
+  paint, when it is laid) scatters. Pick the paint's family from the
+  painting's zones at the stroke's centre, which paint of the family from a
+  slow noise over the canvas, and the laying time from another, with only
+  a little hash on top. Colours then gather into masses and a new coat
+  grows as neighbouring strokes, as a painter works a patch.
+- **Wet paint mixes as pigment**: `exp(mix(log(a), log(b), k))`. Blue into
+  orange gives mud, blue into yellow gives green, and nothing comes out
+  brighter than its parts. A linear `mix` gives pastel greys instead.
+  Derive the palette from a few tube colours the same way (umber is the
+  root of red times green).
+- **Strokes longer than you think, joins torn**: equal short strokes with
+  cut ends read as a quilt of chips. Lengths of 0.4 to 1.0 frame heights,
+  most joins torn by the comb, a hard cut head on about a third.
 
 ## Marks
 
@@ -67,6 +104,7 @@ original is calligraphic.
 | Burned or carved wood | Darkened, slightly sunk strokes; grain lines bending round knots |
 | Bone, shell, driftwood | Pale warm base, soft shading from a distance-based normal, pits and grain |
 | Gloss resin | A broad sheen and a narrow streak drifting across, over everything |
+| Thick acrylic or oil, knife or bristle brush | Two or three paints in streaks along the stroke, a dirty one taking over toward the tail; furrows from the comb lit by a rake light; paint running out into dry brush that shows the coat beneath; pinpoint glints on the ridges, brighter while the stroke is fresh. No halo at all |
 
 Matte paintings want little glow (default 0.3-0.5). Neon tubes, plastic
 bevels and bronze-looking gold were all rejections.
@@ -76,7 +114,9 @@ bevels and bronze-looking gold were all rejections.
 Write, hold and unwrite with a glint; band rotation; slide along a path;
 wave phase roll; rake-light sweep; damped spring (integrated in the clock);
 twinkle; a beat ripple along an axis (`fract(syn_BeatTime)`); chase lights;
-drift of hair or smoke as a domain warp whose phase is a clock.
+drift of hair or smoke as a domain warp whose phase is a clock; repainting
+(coats laid stroke by stroke, head to tail, the laying clock pushed by
+kicks); paint that glistens when laid and dulls as it sets.
 
 ## Audio
 

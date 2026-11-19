@@ -19,6 +19,14 @@ says what it changes and what zero means. Aim for 14 to 22 controls.
 when the art is fluorescent, `gloss` 0-1/0.5 for resin or varnish, `stars`
 0-1 for sparkle fields.
 
+Thick paint throws no halo: there `impasto` 0-2/1 (how far the ridges stand)
+and `gloss` 0-2/1 take the place of `glow`, with `dry` 0-1 (how soon the
+paint runs out) and `mud` 0-1 (how much the paints are dragged together).
+
+A control that wraps (`hue`, a phase, an angle in turns) runs from -0.5 to
+0.5 with its default at 0. From 0 to 1 both ends are the same picture, and
+the forge reports that it does little.
+
 ## One per scene
 
 - **A bang**, `bang counter smooth`, `PARAMS 0.04`, named as a verb the
@@ -28,6 +36,9 @@ when the art is fluorescent, `gloss` 0-1/0.5 for resin or varnish, `stars`
 - **A dropdown** for a layout or a count, with `LABELS` and `VALUES`, and
   `DEFAULT` as an index: `rows`, `rings`, `view`, `frame`, `twins`.
 - **A colour control per paint** (`color smooth`, `DEF_COLOR` as `vec3`).
+  When the painting has a dozen colours, the controls are the tubes (five
+  or six) and the shader mixes the rest from them, so changing one tube
+  changes its tints and its muds with it.
 
 ## The scene's own
 

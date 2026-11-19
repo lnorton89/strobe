@@ -57,7 +57,10 @@ Before any code, write the reading as the header comment of `main.glsl`:
    commonest rejection.
 5. **Palette as paint, not as photographed:** take hue from the photo, but
    push value and saturation to what the paint is under a normal light. Note
-   the substrate colour separately.
+   the substrate colour separately. For an all-over piece, count the palette
+   by area as well (quantise the crop to about twelve colours and print each
+   one's share): the eye remembers the clean colours, and an abstract that
+   was two fifths brown came out as confetti until the count was read.
 6. **Motion from meaning:** what in the subject could move (water rolls, a
    spring bounces, a sun sets, writing is written, a crab scuttles, hair
    drifts). Motion the still cannot show is where the scene earns its place.
@@ -65,7 +68,9 @@ Before any code, write the reading as the header comment of `main.glsl`:
 ## 2. Plan the scene
 
 - **Archetype** (`reference/grammar.md`): grid, polar, axial stack, swept
-  path, layered windows or scatter field. Name it.
+  path, layered windows, scatter field or coats. Name it. A piece with no
+  subject (gestural paint, pours, scraped colour) is coats: the strokes are
+  the picture, so the plan is the stroke, the paints and where each gathers.
 - **Recompose to 16:9.** The hero fills most of the height and the sides are
   not dead: extend the substrate, add twins or a dimmed field of the same
   marks, repeat the plank, run the sea across. A portrait plank alone in the
@@ -109,7 +114,20 @@ they are the fixes for most past defects.
 - Neighbour-cell culling and band tests must include `GLOW_REACH` and the
   mark's own reach, or seams appear.
 - High-frequency `vnoise` (above about 200 cycles a frame) shows 2x2 blocks;
-  use a per-cell hash for stipple and grain.
+  use a per-cell hash for stipple and grain. The other way round for grain a
+  few pixels across inside a stroke: hashed cells read as pixels there, and
+  smooth noise stretched along the stroke reads as dry brush.
+- Opaque layers are drawn from the top down, stopping when the pixel is
+  covered, and each layer works out its coverage before its colour and
+  returns early when it misses. Three stacked coats went from 4.8 ms to
+  1.85 ms that way. It rules out a layer reading the colour beneath it.
+- A layer never appears or closes by a fade of its whole alpha: a
+  half-faded stroke is a sheet of glass over the picture. Move the threshold
+  that makes its gaps instead, so the gaps themselves shrink.
+- Mixing a stroke's colour with the pixel beneath it, more than about a
+  quarter, also reads as glass. Give the stroke its own dirty paint instead.
+- A schedule taken from noise is never clamped: everything pushed to the
+  end of the range happens at once. Rescale so the ends are reachable.
 
 ## 4. Check, look, critique, repeat
 
@@ -135,6 +153,19 @@ saw 1.5 ms read as 30 ms). Time on a quiet GPU, or take the lowest of
 several runs, and say which. A "does little" warning on a control that only
 touches a small feature (a pupil, a foil disc, sparkles) is acceptable if you
 can see the change in the controls grid; say so in your report.
+
+A scene that hands anything over (generations, coats, write and unwrite)
+must be checked across the hand-over, which the five frames will not land
+on. Render a run of frames a twentieth of a second apart with `--times`
+(`--size 640x360 --no-dialect --no-timing`), difference each from the one
+before with a few lines of PIL, and read the series: the forge's frames run
+on from each other with its 120 BPM kicks, so a kick is a small rise every
+half second, a pop is one tall spike, and a plateau is a burst of things
+starting together.
+
+Look at one frame at 1920x1080 cropped to actual pixels as well as the
+sheet. The sheet shows composition; only the crop shows whether a surface
+is paint or satin.
 
 Open the frames with the Read tool and go through `reference/critique.md`
 against the photo. Write the differences down as a list, fix the worst three,
