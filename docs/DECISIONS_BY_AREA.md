@@ -13,6 +13,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [strobe-capture](#strobe-capture)
 - [strobe-conventions](#strobe-conventions)
 - [strobe-diag](#strobe-diag)
+- [strobe-forge](#strobe-forge)
 - [strobe-gfx](#strobe-gfx)
 - [strobe-io](#strobe-io)
 - [strobe-playlist](#strobe-playlist)
@@ -114,7 +115,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-bench
 
-23 decision(s).
+24 decision(s).
 
 - [D55](decisions/D55.md): macOS CI is two-tier until strobe-gfx has a CGL context
 - [D56](decisions/D56.md): CI keeps the rendered frames
@@ -139,6 +140,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D504](decisions/D504.md): pull requests build `release-fast`; the fat-LTO `release` build runs on master
 - [D534](decisions/D534.md): the script-aware corpus is a regression gate, with expectations and baseline frames
 - [D555](decisions/D555.md): a hand-loaded scene compiles in the background where the driver can, and the output plays on meanwhile
+- [D562](decisions/D562.md): Scenes from a photo are made by one written pipeline: a project skill, the strobe-forge checker and its LLM loop
 
 ## strobe-capture
 
@@ -184,6 +186,12 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D541](decisions/D541.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
 - [D556](decisions/D556.md): the computer and display stay awake while the output is fullscreen
 - [D558](decisions/D558.md): the sandbox generates controls a step per animation frame, on the app's own engine and settings
+
+## strobe-forge
+
+1 decision(s).
+
+- [D562](decisions/D562.md): Scenes from a photo are made by one written pipeline: a project skill, the strobe-forge checker and its LLM loop
 
 ## strobe-gfx
 

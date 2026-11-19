@@ -281,6 +281,11 @@
 - **Work:** cube map inputs (the renderer has cube maps, D185); a keyboard texture; decide whether a Needs-work bin earns its place next to the Diagnostics pane's Needs work card (D483), or close it.
 - **Acceptance:** each supported input has an original fixture rendering in both dialects (met: `cube_map.json` and `keyboard.json` beside the nine, D553); each refused one fails with Strobe's message naming it (met: `unsupported_things_are_errors_that_name_the_pass_and_channel`); a resize at Speed 2 shows no jump (met, D495).
 
+### I-07 Scene forge: real model runs and more providers
+- **Status:** Built (D562): `strobe-forge check` renders a scene at set times, writes a sheet beside the reference photo, times it at 1080p, runs the website's gates (black, flat, blown, frozen, flash) and moves every control to its extremes; `strobe-forge make` runs the scene-from-image skill as a loop against the Anthropic Messages API with repair and critique rounds. Unit tests drive the loop with a fake author and a fake checker; no test uses the network.
+- **Work:** run `make` with a real key on the reference photos and fix what differs from the fakes (answer format, image size, timeouts, refusals); add OpenAI and Google providers behind the same `Author` trait; stream long answers instead of one blocking request; check the GLSL ES dialect on a machine with ANGLE beside the binary and record it; decide whether the gates' thresholds need tuning for hand-drawn scenes.
+- **Acceptance:** `make` completes a passing scene from a photo with a real key on each provider; `check` reports both dialects compiled on LIGHTNING; a second run from the same photo reaches a comparable scene.
+
 ## Epic P — Playlist, audio timing and show control
 
 ### P-01 Audio-event advance
