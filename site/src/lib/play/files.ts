@@ -221,12 +221,16 @@ export function sharedIdFromPath(pathname: string): string | undefined {
   return /^\/s\/([2-9a-km-np-z]{10,16})\/?$/.exec(pathname)?.[1];
 }
 
-/** Uploads `scene` and returns its short link. Throws when the site cannot store it. */
-export async function uploadShare(scene: Scene): Promise<string> {
+/**
+ * Uploads `scene` and returns its short link. `card` is the picture the link
+ * shows where it is pasted (D565), base64 JPEG; it is not part of the scene.
+ * Throws when the site cannot store the scene.
+ */
+export async function uploadShare(scene: Scene, card?: string): Promise<string> {
   const response = await fetch("/api/share", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(scene),
+    body: JSON.stringify(card === undefined ? scene : { ...scene, card }),
   });
   const body = (await response.json().catch(() => ({}))) as { url?: unknown; error?: unknown };
   if (!response.ok || typeof body.url !== "string") {

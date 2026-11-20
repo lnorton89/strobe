@@ -31,6 +31,7 @@ import CodeEditor, { type LineError } from "@/components/play/CodeEditor";
 import ControlsPanel from "@/components/play/ControlsPanel";
 import GeneratePanel, { type GenerateState } from "@/components/play/GeneratePanel";
 import { type LiveAudio, openFile, openMicrophone } from "@/lib/play/audio";
+import { cardFromCanvas } from "@/lib/play/card";
 import { type ControlJson, type Engine, controlDims, loadEngine } from "@/lib/play/engine";
 import {
   BLANK,
@@ -724,7 +725,8 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
     let url: string;
     let problem: string | undefined;
     try {
-      url = await uploadShare(carried);
+      // The frame on screen now becomes the link's picture (D565).
+      url = await uploadShare(carried, cardFromCanvas(canvas.current));
       history.replaceState(null, "", new URL(url).pathname);
     } catch (caught) {
       const fragment = await encodeShare(carried);
