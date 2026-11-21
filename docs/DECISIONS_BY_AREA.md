@@ -457,7 +457,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## Not tied to one crate
 
-229 decision(s).
+230 decision(s).
 
 - [D1](decisions/D1.md): native OpenGL (glow + glutin), not wgpu
 - [D2](decisions/D2.md): ANGLE as the fallback context, not native-only
@@ -688,3 +688,4 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D557](decisions/D557.md): the website looks the release up at build and again in the browser, renders its cards with Metaplate, self-hosts its fonts, and states facts instead of selling
 - [D560](decisions/D560.md): From image makes scenes from a picture by templates, neural recognition and the visitor's own LLM, and a person picks
 - [D563](decisions/D563.md): a short dropdown shows its options side by side, and a mapped control says so on its row
+- [D566](decisions/D566.md): local time comes from jiff, not chrono

@@ -5,7 +5,7 @@
 //               helpers, the config file, the audit log, and the
 //               password-protected web page with the service that hosts it.
 //
-// Dependencies: serde, serde_json, thiserror, log, md-5, sha2, chrono;
+// Dependencies: serde, serde_json, thiserror, log, md-5, sha2, jiff;
 //               strobe-diag (paths)
 // ============================================================================
 
