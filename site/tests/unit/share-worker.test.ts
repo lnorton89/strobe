@@ -52,7 +52,10 @@ function fakeEnv() {
   return { env: { SCENES, ASSETS }, objects };
 }
 
-const JPEG = [0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4, 0xff, 0xd9];
+// SOI, a 1200x630 baseline frame header, EOI: the least the Worker takes as a card.
+const JPEG = [
+  0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 8, 0x02, 0x76, 0x04, 0xb0, 3, 1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1, 0xff, 0xd9,
+];
 const CARD = btoa(String.fromCharCode(...JPEG));
 const SCENE = { title: "rings", files: { "main.glsl": "vec4 renderMain(){}" } };
 

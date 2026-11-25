@@ -8,7 +8,7 @@
  * link falls back to the /play page's own.
  */
 
-/** A social card's size, the one the site's other cards use. */
+/** A social card's size, the one the site's other cards use. The Worker accepts no other (worker/share-card.ts). */
 export const CARD_WIDTH = 1200;
 export const CARD_HEIGHT = 630;
 /** Must not exceed the Worker's `CARD_BYTES` (worker/share-card.ts). */

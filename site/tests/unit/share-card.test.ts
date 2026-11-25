@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   CARD_BASE64_CHARS,
   CARD_BYTES,
+  CARD_HEIGHT as WORKER_HEIGHT,
+  CARD_WIDTH as WORKER_WIDTH,
   type CardBucket,
   cardPage,
   hasCard,
+  jpegSize,
   loadCard,
   readCard,
   storeCard,
@@ -41,9 +44,21 @@ function base64(bytes: number[]): string {
   return btoa(text);
 }
 
-/** The smallest thing with a JPEG's first and last bytes, padded to `length`. */
-function jpeg(length = 16, fill = 0): number[] {
-  return [0xff, 0xd8, 0xff, 0xe0, ...Array.from({ length: length - 6 }, () => fill), 0xff, 0xd9];
+/** A frame header (`marker` C0 is baseline, C2 progressive) for a `width` by `height` picture. */
+function frameHeader(width: number, height: number, marker = 0xc0): number[] {
+  return [0xff, marker, 0x00, 0x11, 8, height >> 8, height & 0xff, width >> 8, width & 0xff, 3, 1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1];
+}
+
+/** A short APP0 segment, so the size is found by walking past one. */
+const APP0 = [0xff, 0xe0, 0x00, 0x04, 0x00, 0x00];
+
+/**
+ * The smallest thing the Worker reads as a card: SOI, an APP0 segment, a
+ * frame header of `width` by `height`, filler and EOI, `length` bytes in all.
+ */
+function jpeg(length = 64, fill = 0, width = CARD_WIDTH, height = CARD_HEIGHT): number[] {
+  const head = [0xff, 0xd8, ...APP0, ...frameHeader(width, height)];
+  return [...head, ...Array.from({ length: length - head.length - 2 }, () => fill), 0xff, 0xd9];
 }
 
 // The tags as the site's build writes them for /play.
@@ -71,8 +86,34 @@ describe("a shared scene's card", () => {
     expect(readCard(base64(jpeg().slice(0, 10)))).toBeUndefined();
   });
 
+  it("reads the size from the frame header and drops any but the card's", () => {
+    for (const [width, height] of [
+      [1, 1],
+      [CARD_HEIGHT, CARD_WIDTH],
+      [CARD_WIDTH * 2, CARD_HEIGHT * 2],
+      [CARD_WIDTH, CARD_HEIGHT + 1],
+    ]) {
+      expect(readCard(base64(jpeg(64, 0, width, height))), `${width}x${height}`).toBeUndefined();
+    }
+    const end = [0xff, 0xd9];
+    // Fill bytes before a marker, a DHT segment (C4 is not a frame header)
+    // and a progressive frame header are all read.
+    const dht = [0xff, 0xc4, 0x00, 0x04, 0x00, 0x00];
+    const fancy = [0xff, 0xd8, 0xff, 0xff, ...APP0.slice(1), ...dht, ...frameHeader(CARD_WIDTH, CARD_HEIGHT, 0xc2), ...end];
+    expect(jpegSize(Uint8Array.from(fancy))).toEqual({ width: CARD_WIDTH, height: CARD_HEIGHT });
+    expect(readCard(base64(fancy))).toEqual(Uint8Array.from(fancy));
+    // A scan before any frame header, a segment that runs past the data, and
+    // a frame header too short to hold a size have none.
+    const scan = [0xff, 0xda, 0x00, 0x04, 0x00, 0x00];
+    expect(jpegSize(Uint8Array.from([0xff, 0xd8, ...scan, ...frameHeader(CARD_WIDTH, CARD_HEIGHT), ...end]))).toBeUndefined();
+    expect(jpegSize(Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0x40, 0x00, ...end]))).toBeUndefined();
+    expect(jpegSize(Uint8Array.from([0xff, 0xd8, 0xff, 0xc0, 0x00, 0x05, 8, 0x02, 0x76, ...end]))).toBeUndefined();
+    expect(jpegSize(Uint8Array.from([0xff, 0xd8, ...end]))).toBeUndefined();
+  });
+
   it("holds the page and the Worker to one size limit", () => {
     expect(CARD_MAX_BYTES).toBeLessThanOrEqual(CARD_BYTES);
+    expect([WORKER_WIDTH, WORKER_HEIGHT]).toEqual([CARD_WIDTH, CARD_HEIGHT]);
     expect(readCard(base64(jpeg(CARD_BYTES)))?.length).toBe(CARD_BYTES);
     expect(base64(jpeg(CARD_BYTES)).length).toBeLessThanOrEqual(CARD_BASE64_CHARS);
     expect(readCard(base64(jpeg(CARD_BYTES + 3)))).toBeUndefined();
@@ -82,11 +123,11 @@ describe("a shared scene's card", () => {
     const { bucket, objects } = fakeBucket();
     expect(await hasCard(bucket, "abcdefghjk")).toBe(false);
     expect(await loadCard(bucket, "abcdefghjk")).toBeUndefined();
-    expect(await storeCard(bucket, "abcdefghjk", Uint8Array.from(jpeg(16, 1)))).toBe(true);
-    expect(await storeCard(bucket, "abcdefghjk", Uint8Array.from(jpeg(16, 2)))).toBe(false);
+    expect(await storeCard(bucket, "abcdefghjk", Uint8Array.from(jpeg(64, 1)))).toBe(true);
+    expect(await storeCard(bucket, "abcdefghjk", Uint8Array.from(jpeg(64, 2)))).toBe(false);
     expect([...objects.keys()]).toEqual(["cards/abcdefghjk.jpg"]);
     const kept = await loadCard(bucket, "abcdefghjk");
-    expect(kept && new Uint8Array(kept)).toEqual(Uint8Array.from(jpeg(16, 1)));
+    expect(kept && new Uint8Array(kept)).toEqual(Uint8Array.from(jpeg(64, 1)));
   });
 
   it("names the scene in the page's social tags", () => {
