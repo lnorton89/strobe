@@ -134,6 +134,10 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         };
     }
+    // The live performance feed (D567): watch another Strobe, no windows.
+    if let Some(host) = cli.watch_perf {
+        return watch_perf(&cli, host);
+    }
     if let Some(args) = generate_worker(&cli) {
         let wrote = generate::worker(&args);
         strobe_diag::logger::flush(FLUSH_TIMEOUT);
@@ -161,6 +165,56 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// `--watch-perf HOST:PORT --remote-trust FILE`: print the host's samples
+/// until `--perf-seconds`, Ctrl+C or a refusal (D567).
+fn watch_perf(cli: &cli::Cli, host: std::net::SocketAddr) -> ExitCode {
+    use std::sync::atomic::AtomicBool;
+    use strobe_app::perf_watch::{self, Ended, Watch};
+    let path = cli
+        .remote_trust
+        .as_ref()
+        .map(|path| path.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let plan = strobe_app::trusted::load_plan(&path, &strobe_app::trusted::new_controller_id());
+    let ended = match plan {
+        Ok(plan) => {
+            let watch = Watch {
+                host,
+                plan,
+                csv: cli.perf_csv.clone(),
+                limit: cli.perf_seconds.map(Duration::from_secs),
+            };
+            log::info!("watch-perf: watching {host}");
+            perf_watch::run(&watch, &mut std::io::stdout(), &AtomicBool::new(false))
+        }
+        Err(why) => Ended::Refused(why),
+    };
+    let code = match &ended {
+        // A watch that heard nothing is not a soak that passed: a script
+        // must see it fail.
+        Ended::Done { samples: 0 } => {
+            let why = format!("No performance samples arrived from {host}.");
+            log::warn!("watch-perf: {why}");
+            eprintln!("{why}");
+            ExitCode::FAILURE
+        }
+        Ended::Done { samples } => {
+            log::info!("watch-perf: done after {samples} samples");
+            ExitCode::SUCCESS
+        }
+        Ended::Refused(why) => {
+            eprintln!("{why}");
+            // Double-clicked, the text goes nowhere (D551).
+            if !cfg!(debug_assertions) && !dialog::stdout_is_read() {
+                dialog::show_error(why);
+            }
+            ExitCode::from(cli::REFUSED_EXIT)
+        }
+    };
+    strobe_diag::logger::flush(FLUSH_TIMEOUT);
+    code
 }
 
 /// `--list-cameras`: the cameras, one per line, on stdout and in the log.

@@ -356,6 +356,10 @@ struct Session<'a> {
     /// This connection asked for the controls (D513), so it is also sent
     /// where each picture has their rows (D515).
     controls_asked: bool,
+    /// This connection asked for the performance feed (D567), and the
+    /// sample last sent on it.
+    perf_open: bool,
+    perf_revision: Option<u64>,
     desktop_open: bool,
     desktop_pairing: bool,
     desktop_authorized: bool,
@@ -408,6 +412,8 @@ impl<'a> Session<'a> {
             controls_revision: None,
             banks_sent: Vec::new(),
             controls_asked: false,
+            perf_open: false,
+            perf_revision: None,
             desktop_open: false,
             desktop_pairing: false,
             desktop_authorized: false,
@@ -855,12 +861,31 @@ impl<'a> Session<'a> {
             }
             self.push_controls()?;
         }
+        self.push_perf()?;
         let (revision, snapshot) = self.shared.remote.snapshot();
         if self.sent_revision == Some(revision) {
             return Ok(());
         }
         self.send(&snapshot.to_message(revision))?;
         self.sent_revision = Some(revision);
+        Ok(())
+    }
+
+    /// Sends the newest performance sample (D567) if this connection asked
+    /// for the feed and has not had that one yet. The host publishes once a
+    /// second, so this sends at most that often.
+    fn push_perf(&mut self) -> Result<(), End> {
+        if !self.perf_open {
+            return Ok(());
+        }
+        let Some((revision, sample)) = self.shared.remote.perf() else {
+            return Ok(());
+        };
+        if self.perf_revision == Some(revision) {
+            return Ok(());
+        }
+        self.send(&ServerMessage::Perf { revision, sample })?;
+        self.perf_revision = Some(revision);
         Ok(())
     }
 
@@ -931,10 +956,7 @@ impl<'a> Session<'a> {
             Ok(message) => message,
             Err(code) => {
                 let fatal = self.phase == Phase::Hello;
-                self.send(&ServerMessage::error(
-                    code,
-                    "that message was not understood",
-                ))?;
+                self.send(&ServerMessage::error(code, crate::NOT_UNDERSTOOD))?;
                 return if fatal || code == ErrorCode::VersionMismatch {
                     Err(End::Close(close::POLICY, "say hello first"))
                 } else {
@@ -999,12 +1021,36 @@ impl<'a> Session<'a> {
                     Err(End::Close(close::POLICY, "control edits refused"))
                 }
             }
+            (Phase::Authenticated(_), ClientMessage::PerfOpen {}) => {
+                // A desktop controller's pairing, approved or trusted, may
+                // watch; a phone's is limited to show commands (D567). No
+                // lease is needed, so watching never takes control.
+                if self.desktop_authorized {
+                    if !self.perf_open {
+                        log::info!("remote: {} is watching the performance feed", self.peer);
+                    }
+                    self.perf_open = true;
+                    self.perf_revision = None;
+                    self.push_state()
+                } else {
+                    self.send(&ServerMessage::error(
+                        ErrorCode::Unauthorized,
+                        "only a desktop controller gets the performance feed",
+                    ))
+                }
+            }
+            (Phase::Authenticated(_), ClientMessage::PerfClose {}) => {
+                self.perf_open = false;
+                Ok(())
+            }
             (
                 Phase::Unauthenticated | Phase::Approval(_),
                 ClientMessage::DesktopOpen {}
                 | ClientMessage::DesktopInput { .. }
                 | ClientMessage::DesktopControlsOpen {}
-                | ClientMessage::DesktopControl { .. },
+                | ClientMessage::DesktopControl { .. }
+                | ClientMessage::PerfOpen {}
+                | ClientMessage::PerfClose {},
             ) => self.send(&ServerMessage::error(
                 ErrorCode::Unauthorized,
                 "pair this desktop first",
@@ -1091,7 +1137,9 @@ impl<'a> Session<'a> {
                     | ClientMessage::TrustStart { .. }
                     | ClientMessage::TrustProof { .. }
                     | ClientMessage::RequestDesktop { .. }
-                    | ClientMessage::RequestPair { .. } => return Err(End::Gone),
+                    | ClientMessage::RequestPair { .. }
+                    | ClientMessage::PerfOpen {}
+                    | ClientMessage::PerfClose {} => return Err(End::Gone),
                 };
                 if desktop && !self.shared.remote.desktop.enabled() {
                     return self.send(&ServerMessage::error(

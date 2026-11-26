@@ -268,6 +268,12 @@ which backend proved a claim.
   "Remote on" and a Stop button in the title bar. Next: real Android and iOS
   devices over Wi-Fi, the Windows firewall prompt and the T480 soak (L-08).
   The page installs as a web app with a service worker (D517); it runs through the HTTPS proxy only, and real phones are still to be tested (L-07).
+- **Live performance feed (D567), built, cost not yet measured:** a desktop
+  controller asks for the host's frame timing and gets a sample a second,
+  counted as the minute `perf:` line counts, with no lease and no picture
+  stream. The desktop viewer draws it as a strip, and `strobe --watch-perf`
+  prints it and writes CSV with no window. Next: a T480 soak with and without
+  a watcher (L-10).
 
 ## Next, in priority order
 

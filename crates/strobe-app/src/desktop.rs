@@ -566,6 +566,8 @@ struct View {
     /// (D515, D519). A frame's rows arrive just before it, so the picture
     /// still shown needs the one before the newest.
     layouts: VecDeque<(u64, ControlLayout)>,
+    /// The host's performance feed (D567), when it has one.
+    perf: crate::perf_feed::Feed,
 }
 
 /// How many frames' layouts a controller keeps: the picture shown is at
@@ -775,6 +777,10 @@ pub struct Controller {
     edits: Option<SyncSender<ControlEdit>>,
     /// When the rows were last drawn, for their eased outputs.
     drawn: Option<Instant>,
+    /// The host's performance feed as the worker last had it (D567), and
+    /// the strip's line for its newest sample.
+    perf: crate::perf_feed::Feed,
+    perf_text: String,
 }
 
 impl Default for Controller {
@@ -809,6 +815,8 @@ impl Default for Controller {
             local_drag: false,
             edits: None,
             drawn: None,
+            perf: crate::perf_feed::Feed::default(),
+            perf_text: String::new(),
         }
     }
 }
@@ -918,6 +926,8 @@ impl Controller {
             ..View::default()
         }));
         self.started = Some(Instant::now());
+        self.perf = crate::perf_feed::Feed::default();
+        self.perf_text.clear();
         self.stop = Arc::new(AtomicBool::new(false));
         // A fresh slot, so a worker still ending from the last connection
         // cannot overwrite this one's interrupter.
@@ -1042,6 +1052,8 @@ impl Controller {
         self.layouts.clear();
         self.local_drag = false;
         self.drawn = None;
+        self.perf = crate::perf_feed::Feed::default();
+        self.perf_text.clear();
         self.texture = None;
         self.texture_context = None;
         self.revision = 0;
@@ -1059,6 +1071,7 @@ impl Controller {
         (view.image.is_some() && view.revision != self.revision)
             || self.shown != Some((view.stage, view.ready))
             || view.controls.as_ref().map(|(revision, _)| *revision) != self.controls_revision
+            || view.perf.taken() != self.perf.taken()
     }
 
     /// Status for Settings or the always-visible viewer toolbar.
@@ -1161,6 +1174,14 @@ impl Controller {
             {
                 self.layouts.clone_from(&view.layouts);
             }
+            if view.perf.taken() != self.perf.taken() {
+                self.perf.clone_from(&view.perf);
+                self.perf_text = self
+                    .perf
+                    .latest()
+                    .map(crate::perf_feed::summary)
+                    .unwrap_or_default();
+            }
             (
                 view.size,
                 view.ready,
@@ -1184,6 +1205,7 @@ impl Controller {
         });
         if let Stage::Live = stage {
             ui.label(&note);
+            crate::perf_feed::strip(ui, &self.perf, &self.perf_text);
         }
         if !self.input_note.is_empty() {
             ui.label(&self.input_note);
@@ -1811,6 +1833,8 @@ fn control(
     // and known to work once the host has sent some. A host from before
     // D513 answers the request `invalid_request`, which is not a failure.
     let mut controls = Controls::default();
+    // The performance feed (D567), asked for beside the controls.
+    let mut perf = PerfAsk::default();
     while !stop.load(Ordering::Relaxed) {
         let now = Instant::now();
         if authenticated && now.duration_since(last_frame) > Duration::from_secs(3) && !paused {
@@ -1921,7 +1945,18 @@ fn control(
                             "Approved. Waiting for the host's first image.".into()
                         };
                     }
+                    // A new session of a host that may have restarted: its
+                    // samples start a new trend (D567).
+                    view.lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .perf
+                        .restart();
                     connection.send(&ClientMessage::DesktopOpen {})?;
+                    // The performance feed first (D567): an older host answers
+                    // each request it does not know, in order, so the first
+                    // `invalid_request` is this one's.
+                    connection.send(&ClientMessage::PerfOpen {})?;
+                    perf.asked = true;
                     connection.send(&ClientMessage::DesktopControlsOpen {})?;
                     controls.asked = true;
                 }
@@ -1942,6 +1977,27 @@ fn control(
                     let mut view = view.lock().unwrap_or_else(PoisonError::into_inner);
                     let banks = with_definitions(banks, view.controls.as_ref());
                     view.controls = Some((revision, banks));
+                }
+                ServerMessage::Error {
+                    code: ErrorCode::InvalidRequest,
+                    message,
+                } if perf.asked
+                    && !perf.seen
+                    && authenticated
+                    && message == strobe_remote::NOT_UNDERSTOOD =>
+                {
+                    // A host from before D567 could not decode `perf_open`:
+                    // the viewer goes without its strip. Any other
+                    // `invalid_request` is not this answer.
+                    perf.asked = false;
+                    log::info!("desktop controller: the host has no performance feed");
+                }
+                ServerMessage::Perf { revision, sample } => {
+                    perf.seen = true;
+                    view.lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .perf
+                        .take(revision, sample);
                 }
                 ServerMessage::Error {
                     code: ErrorCode::InvalidRequest,
@@ -2093,6 +2149,15 @@ struct Controls {
     seen: bool,
     /// When edits may next leave.
     next_send: Option<Instant>,
+}
+
+/// Where one connection stands with the performance feed (D567).
+#[derive(Default)]
+struct PerfAsk {
+    /// `perf_open` was sent.
+    asked: bool,
+    /// The host has sent a sample, so it has the feed.
+    seen: bool,
 }
 
 /// The edits waiting in `edits`. A newer value for a control replaces an
@@ -3539,6 +3604,46 @@ mod tests {
             tick(&mut scene);
             scene.target(0).is_some_and(|target| target[0] == 1.5)
         })?;
+        controller.disconnect();
+        server.stop();
+        Ok(())
+    }
+
+    #[test]
+    fn the_hosts_perf_feed_reaches_the_viewers_strip() -> Result<()> {
+        let scratch = Scratch::new("perf")?;
+        let file = scratch.0.join("venue.trust");
+        let secret = venue_trust::create_file(&file)?;
+        let (server, app) = trusted_host(&secret, 0)?;
+        let mut controller = trusted_controller(&file, server.addr());
+        controller.connect();
+        within(PATIENCE, || app.desktop.active())?;
+        app.publish_perf(strobe_remote::perf::PerfSample {
+            fps: 59.9,
+            frames: 60,
+            budget_ms: 1000.0 / 60.0,
+            ..strobe_remote::perf::PerfSample::default()
+        });
+        within(PATIENCE, || {
+            controller
+                .view
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .perf
+                .latest()
+                .is_some()
+        })?;
+        assert!(
+            controller.needs_redraw(),
+            "a new sample asks the viewer to draw"
+        );
+        let view = controller
+            .view
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let sample = view.perf.latest().copied().unwrap_or_default();
+        assert_eq!(sample.frames, 60, "the host's sample: {sample:?}");
+        drop(view);
         controller.disconnect();
         server.stop();
         Ok(())

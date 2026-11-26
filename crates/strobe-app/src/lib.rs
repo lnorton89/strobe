@@ -51,6 +51,9 @@
 //!   unattended show machine.
 //! - [`trusted`]: the laptop's half of venue mode (D294), the trust-file
 //!   proof, the retry schedule and the refusal texts.
+//! - [`perf_feed`], [`perf_watch`]: the controller's side of the live
+//!   performance feed (D567): the desktop viewer's strip, and
+//!   `strobe --watch-perf`, which prints a host's samples with no window.
 //! - [`cli`]: the command line.
 //! - [`corpus`]: the scene-corpus compatibility harness behind
 //!   `strobe-corpus` and `cargo xtask corpus` (D195).
@@ -86,6 +89,8 @@ pub mod mouse;
 pub mod output_monitor;
 pub mod palette;
 pub mod perf;
+pub mod perf_feed;
+pub mod perf_watch;
 pub mod picker;
 pub mod prefs;
 pub mod prerender;

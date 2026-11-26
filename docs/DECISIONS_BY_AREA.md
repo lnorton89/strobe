@@ -30,7 +30,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-app
 
-48 decision(s).
+49 decision(s).
 
 - [D42](decisions/D42.md): release builds keep line tables and are not stripped
 - [D55](decisions/D55.md): macOS CI is two-tier until strobe-gfx has a CGL context
@@ -79,6 +79,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D544](decisions/D544.md): what the audit work had skipped: a static C runtime, the imports and the loaded ANGLE checked, the browser engine built, generators that reach the code, and a changelog that can be corrected
 - [D551](decisions/D551.md): `--diagnose` raises its box only when nothing reads its output, so a harness run ends
 - [D553](decisions/D553.md): Shadertoy cube-map inputs become scene cube maps, the keyboard is 256x3 with every key up, and the Needs-work bin is closed
+- [D567](decisions/D567.md): a desktop controller can watch the host's frame timing live, one sample a second, without the picture stream
 - [D568](decisions/D568.md): cargo-deny ignores RUSTSEC-2026-0543, `chrono` unmaintained, until its two calls move
 
 ## strobe-audio
@@ -283,7 +284,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-remote
 
-17 decision(s).
+18 decision(s).
 
 - [D232](decisions/D232.md): the remote's bridge to the app thread is a bounded queue with a reply per request
 - [D250](decisions/D250.md): the LAN remote speaks its own small HTTP and WebSocket on std threads, with sha1 the only new crate
@@ -302,6 +303,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D519](decisions/D519.md): the controller lays its rows out at the host's size and scales them with the picture
 - [D539](decisions/D539.md): property tests over untrusted input, weekly machete and coverage, and the decisions indexed by crate
 - [D544](decisions/D544.md): what the audit work had skipped: a static C runtime, the imports and the loaded ANGLE checked, the browser engine built, generators that reach the code, and a changelog that can be corrected
+- [D567](decisions/D567.md): a desktop controller can watch the host's frame timing live, one sample a second, without the picture stream
 
 ## strobe-scene
 

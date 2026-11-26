@@ -566,6 +566,31 @@ refused while it is off.
 - Keep the file out of any folder Strobe writes scenes to: a controller with
   the full UI can save files on the host.
 
+### Watching a show's frame rate from another computer
+
+When you control another Strobe, a thin strip under the viewer's toolbar
+shows the host's frame rate, late and missed frames, GPU and CPU time, render
+scale and what the control window costs. They are updated every second, with
+a small graph of the last minute. The strip turns amber when the show missed
+a frame, when the host's control window was slowed, or when a window sat over
+the fullscreen output. A host running an older Strobe shows no strip.
+
+To watch without taking control, and without the picture stream that the
+viewer uses, start Strobe on the other computer like this, with the venue
+trust file:
+
+```text
+strobe --watch-perf 192.168.1.50 --remote-trust "C:\Users\you\venue.trust" --perf-csv "C:\Users\you\soak.csv"
+```
+
+The show machine must be started as in venue mode above. Strobe opens no
+window. It writes a row to the CSV file every second, which opens in a
+spreadsheet. It keeps going until you close it, or for `--perf-seconds N`
+seconds, and reconnects by itself if the network drops. On Windows nothing is
+printed to the command prompt, so use `--perf-csv`, or add `> perf.txt` to
+get the printed lines in a file. Watching costs the show one small message a
+second.
+
 ### HTTPS through your own proxy (advanced)
 
 Strobe has no certificate of its own, and it will never ask you to click

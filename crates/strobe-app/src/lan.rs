@@ -579,6 +579,14 @@ impl Lan {
         self.app_end.as_ref().map(|app_end| app_end.desktop.clone())
     }
 
+    /// Publishes a performance sample for watching controllers (D567);
+    /// nothing while the listener is off.
+    pub fn publish_perf(&self, sample: strobe_remote::perf::PerfSample) {
+        if let Some(app_end) = self.app_end.as_ref() {
+            app_end.publish_perf(sample);
+        }
+    }
+
     /// Whether it is time to publish the state.
     pub fn publish_due(&mut self, now: Instant) -> bool {
         if self.app_end.is_none() {
