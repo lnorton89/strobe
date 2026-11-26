@@ -16,6 +16,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [strobe-forge](#strobe-forge)
 - [strobe-gfx](#strobe-gfx)
 - [strobe-io](#strobe-io)
+- [strobe-output](#strobe-output)
 - [strobe-playlist](#strobe-playlist)
 - [strobe-projector](#strobe-projector)
 - [strobe-remote](#strobe-remote)
@@ -146,13 +147,14 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-capture
 
-1 decision(s).
+2 decision(s).
 
 - [D528](decisions/D528.md): a webcam is a media choice, `camera:<name>`, captured by `strobe-capture`
+- [D570](decisions/D570.md): NDI and Spout output leave through one seam, NDI over a readback and Spout over the texture
 
 ## strobe-conventions
 
-10 decision(s).
+11 decision(s).
 
 - [D41](decisions/D41.md): unsafe is allowed in exactly one `strobe-diag` file
 - [D54](decisions/D54.md): actions pinned by SHA, permissions declared, both enforced by a test
@@ -164,6 +166,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D541](decisions/D541.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
 - [D552](decisions/D552.md): the website and its wasm engine are built and played in CI, as a lane of their own
 - [D555](decisions/D555.md): a hand-loaded scene compiles in the background where the driver can, and the output plays on meanwhile
+- [D571](decisions/D571.md): The Spout sender calls the installed library's C++ ABI
 
 ## strobe-diag
 
@@ -255,6 +258,12 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D539](decisions/D539.md): property tests over untrusted input, weekly machete and coverage, and the decisions indexed by crate
 - [D541](decisions/D541.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
 - [D544](decisions/D544.md): what the audit work had skipped: a static C runtime, the imports and the loaded ANGLE checked, the browser engine built, generators that reach the code, and a changelog that can be corrected
+
+## strobe-output
+
+1 decision(s).
+
+- [D570](decisions/D570.md): NDI and Spout output leave through one seam, NDI over a readback and Spout over the texture
 
 ## strobe-playlist
 

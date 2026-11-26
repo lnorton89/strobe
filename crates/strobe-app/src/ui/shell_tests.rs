@@ -1359,6 +1359,7 @@ fn draw_events(
             monitors: &monitors,
             output_monitor: Some(0),
             output_visible: scenario.output_visible,
+            sharing: Default::default(),
             fullscreen: false,
             maximized: false,
             gl_summary: "native | llvmpipe | 4.5 Mesa",

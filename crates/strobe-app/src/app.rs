@@ -860,6 +860,8 @@ struct Running {
     lan_scan: LanScan,
     /// The file or folder dialog a Browse button opened (D470).
     picker: crate::picker::Picker,
+    /// The Spout and NDI senders this run has open (D570).
+    share: crate::output::Sharing,
     desktop_capture: crate::desktop::Capture,
     desktop_input: crate::desktop::HostInput,
     desktop_events: Vec<strobe_remote::desktop::Input>,
@@ -938,6 +940,16 @@ impl Running {
         } else {
             UiState::load()
         };
+        // Sharing the output (D570): a flag names a sender for this run, and
+        // Settings can turn either on for the session.
+        if let Some(name) = cli.spout.as_deref() {
+            ui_state.sharing.spout = true;
+            ui_state.sharing.spout_name = name.to_owned();
+        }
+        if let Some(name) = cli.ndi.as_deref() {
+            ui_state.sharing.ndi = true;
+            ui_state.sharing.ndi_name = name.to_owned();
+        }
         if cli.system_title_bar {
             ui_state.custom_title_bar = false;
         }
@@ -1078,6 +1090,7 @@ impl Running {
             desktop_controller,
             lan_scan: LanScan::default(),
             picker: crate::picker::Picker::default(),
+            share: crate::output::Sharing::new(),
             desktop_capture: crate::desktop::Capture::default(),
             desktop_input: crate::desktop::HostInput::default(),
             desktop_events: Vec::with_capacity(129),
@@ -4681,6 +4694,16 @@ impl Running {
                     );
                 }
                 Action::SetPrerender(on) => self.set_prerender(on),
+                Action::SetSpout(on) => {
+                    self.ui_state.sharing.spout = on;
+                    self.share.apply(&self.ui_state.sharing);
+                    self.ui_state.sharing.note = self.share.note().to_owned();
+                }
+                Action::SetNdi(on) => {
+                    self.ui_state.sharing.ndi = on;
+                    self.share.apply(&self.ui_state.sharing);
+                    self.ui_state.sharing.note = self.share.note().to_owned();
+                }
                 Action::SetAdaptive(on) => {
                     self.stack.perf.set_enabled(on);
                     self.render_scale = self.stack.perf.scale();
@@ -5421,6 +5444,7 @@ impl Running {
         }
         let composited = self.stack.show.as_ref().is_some_and(Show::composited);
         self.posted = self.apply_post(composited);
+        self.share_picture(composited);
         if self.stack.session.is_some() || composited {
             if shown {
                 gl.plain_state();
@@ -5528,6 +5552,55 @@ impl Running {
                 }
                 false
             }
+        }
+    }
+
+    /// Hands this frame's finished picture to the senders that are on
+    /// (D570): the post stage's output when it ran, else the compositor's
+    /// mix, else the scene's output — the same choice a hidden window's
+    /// screenshot makes. Spout takes the texture; NDI is given the pixels,
+    /// read back only when it is on.
+    fn share_picture(&mut self, composited: bool) {
+        let (wants_spout, wants_ndi) = self.share.names();
+        if wants_spout.is_none() && wants_ndi.is_none() {
+            return;
+        }
+        let texture = if self.posted {
+            Some(self.stack.post.output_share())
+        } else if composited {
+            Some(self.stack.compositor.output_share())
+        } else {
+            self.stack
+                .session
+                .as_ref()
+                .map(|session| session.player.output_share())
+        };
+        let frame = wants_ndi.and_then(|_| {
+            let (rgba, size) = if self.posted {
+                (self.stack.post.read_output(), self.stack.post.size())
+            } else if composited {
+                (
+                    self.stack.compositor.read_output(),
+                    self.stack.compositor.size(),
+                )
+            } else {
+                let session = self.stack.session.as_ref()?;
+                let size = session.player.render_size();
+                (session.player.read_output(), size)
+            };
+            Some(strobe_output::Frame {
+                width: size[0].max(0) as u32,
+                height: size[1].max(0) as u32,
+                rgba,
+            })
+        });
+        let picture = crate::output::Picture {
+            texture,
+            frame: frame.as_ref(),
+        };
+        self.share.show(&picture);
+        if self.share.faulted() {
+            self.ui_state.sharing.note = self.share.note().to_owned();
         }
     }
 
@@ -5839,6 +5912,10 @@ impl Running {
             .lan
             .desktop()
             .is_some_and(|desktop| desktop.controls_wanted());
+        // Opens or closes a sender when Settings or a flag changed one.
+        self.share.apply(&self.ui_state.sharing);
+        self.ui_state.sharing.note = self.share.note().to_owned();
+        let sharing = self.ui_state.sharing.clone();
         let mut model = Model {
             ui: &mut self.ui_state,
             library: &self.library,
@@ -5879,6 +5956,7 @@ impl Running {
             monitors: &self.monitor_labels,
             output_monitor: self.output_monitor.index(),
             output_visible: self.output_visible,
+            sharing,
             fullscreen: self.stack.output.window().fullscreen().is_some(),
             maximized: self.stack.control.window().is_maximized(),
             gl_summary: &self.gl_summary,

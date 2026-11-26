@@ -52,7 +52,9 @@
 //! exactly as they would a scene's.
 
 use crate::caps::Caps;
-use crate::gl::{Format, Framebuffer, Gl, Program, Sampling, Stage, Texture, VertexArray};
+use crate::gl::{
+    Format, Framebuffer, Gl, Program, Sampling, Stage, Texture, TextureShare, VertexArray,
+};
 use strobe_scene::assemble::{self, Dialect};
 
 /// How the two frames are mixed.
@@ -213,6 +215,12 @@ impl Compositor {
     /// The mixed frame, e.g. for a UI preview.
     pub fn output_texture(&self) -> &Texture {
         &self.target
+    }
+
+    /// The frame as a sender may share it, for Spout's zero-copy path
+    /// (D570). Made and used inside a frame, never kept.
+    pub fn output_share(&self) -> TextureShare {
+        self.target.share()
     }
 
     /// Draws the mixed frame into the default framebuffer, letterboxed to

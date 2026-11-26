@@ -185,6 +185,8 @@ const ADAPTIVE: &str = "Adaptive resolution";
 const SCALE: &str = "Render scale";
 /// The label of the switch that prerenders the library's scenes (D542).
 pub const PRERENDER: &str = "Prerender scenes";
+const SPOUT: &str = "Spout";
+const NDI: &str = "NDI";
 const THEME: &str = "Theme";
 const DENSITY: &str = "Density";
 const REDUCE_MOTION: &str = "Reduce motion";
@@ -697,6 +699,32 @@ fn output(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec
             Row::new(MONITOR).description("The display the output goes fullscreen on."),
             |ui| monitor_picker(ui, model, actions),
         );
+    });
+    form::group(ui, theme, "Sharing", |group| {
+        let mut spout = model.sharing.spout;
+        let row = Row::new(SPOUT).description(
+            "Publishes the picture to Spout, so Resolume, OBS, TouchDesigner or Notch on this              computer can take it as a source. The GPU texture itself is shared: nothing is              read back. Windows only.",
+        );
+        let row = if model.sharing.note.is_empty() {
+            row
+        } else {
+            row.note(&model.sharing.note, theme.text_muted)
+        };
+        if group.toggle(row, &mut spout).changed() {
+            actions.push(Action::SetSpout(spout));
+        }
+        let mut ndi = model.sharing.ndi;
+        if group
+            .toggle(
+                Row::new(NDI).description(
+                    "Sends the picture over the network as NDI, so another computer can take                      it. Needs the NDI 6 runtime installed. About 250 MB/s at 1080p60, so a                      gigabit link of its own.",
+                ),
+                &mut ndi,
+            )
+            .changed()
+        {
+            actions.push(Action::SetNdi(ndi));
+        }
     });
     form::group(ui, theme, "Rendering", |group| {
         let timed = model.perf.has_timer;

@@ -37,7 +37,8 @@
 use crate::assets::{self, AssetProblem, MediaRequest};
 use crate::caps::{Caps, FloatPrecision};
 use crate::gl::{
-    Format, Framebuffer, Gl, LinkFailure, Program, Sampling, Stage, Texture, VertexArray,
+    Format, Framebuffer, Gl, LinkFailure, Program, Sampling, Stage, Texture, TextureShare,
+    VertexArray,
 };
 use crate::media::Media;
 use crate::readback::FinalPassReader;
@@ -1408,6 +1409,12 @@ impl ScenePlayer {
     /// The finished frame's texture, e.g. for a UI preview.
     pub fn output_texture(&self) -> &Texture {
         &self.output().texture
+    }
+
+    /// The frame as a sender may share it, for Spout's zero-copy path
+    /// (D570). Made and used inside a frame, never kept.
+    pub fn output_share(&self) -> TextureShare {
+        self.output_texture().share()
     }
 
     /// Draws the finished frame into the default framebuffer, letterboxed

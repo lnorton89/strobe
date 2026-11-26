@@ -36,6 +36,9 @@ strobe-remote.workspace = true
 strobe-projector.workspace = true
 # Webcams behind syn_Media (M-04, D528).
 strobe-capture.workspace = true
+# Sharing the output: Spout and NDI (D570). NDI is on in the app so a
+# machine with its runtime can share; the crate builds without it too.
+strobe-output = { workspace = true, features = ["ndi"] }
 anyhow.workspace = true
 clap.workspace = true
 image.workspace = true

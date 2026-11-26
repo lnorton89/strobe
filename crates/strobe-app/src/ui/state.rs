@@ -242,6 +242,37 @@ impl Default for SynesthesiaState {
 /// How many recent playlists are kept (D481).
 pub const RECENT_PLAYLISTS: usize = 5;
 
+/// Sharing the output through Spout and NDI (D570, D571).
+///
+/// Two switches and the names a receiver lists. Not saved: a shared output
+/// is a property of the show in front of you, and `--spout`/`--ndi` are how a
+/// launcher asks for one every time.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SharingUi {
+    /// Share through Spout.
+    pub spout: bool,
+    /// The name Spout receivers list.
+    pub spout_name: String,
+    /// Share over NDI.
+    pub ndi: bool,
+    /// The name NDI receivers list.
+    pub ndi_name: String,
+    /// What a sender said when it would not open, or stopped.
+    pub note: String,
+}
+
+impl Default for SharingUi {
+    fn default() -> Self {
+        Self {
+            spout: false,
+            spout_name: "Strobe".to_string(),
+            ndi: false,
+            ndi_name: "Strobe".to_string(),
+            note: String::new(),
+        }
+    }
+}
+
 /// Everything about the control window's presentation that is the
 /// operator's to keep.
 pub struct UiState {
@@ -300,6 +331,8 @@ pub struct UiState {
     pub synesthesia: SynesthesiaState,
     /// Prerendering the library's scenes (D542): the switch is saved.
     pub prerender: PrerenderState,
+    /// Sharing the output through Spout and NDI (D570).
+    pub sharing: SharingUi,
     /// What the "Control another Strobe" form remembers (D294). Saved.
     pub remote: crate::prefs::RemotePref,
     /// The Settings pane's layout name field. Not saved.
@@ -361,6 +394,7 @@ impl UiState {
         crate::motion::set_reduced(prefs.reduced_motion || env_reduced);
         let mut state = Self {
             panes: prefs.to_panes(),
+            sharing: SharingUi::default(),
             browser: BrowserState {
                 query: prefs.browser.query.clone(),
                 filter: HealthFilter::from_key(&prefs.browser.filter),

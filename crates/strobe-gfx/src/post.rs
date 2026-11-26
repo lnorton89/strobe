@@ -61,7 +61,9 @@
 //! the shown output window presents. They compose; see D181.
 
 use crate::caps::Caps;
-use crate::gl::{Format, Framebuffer, Gl, Program, Sampling, Stage, Texture, VertexArray};
+use crate::gl::{
+    Format, Framebuffer, Gl, Program, Sampling, Stage, Texture, TextureShare, VertexArray,
+};
 use strobe_scene::assemble::{self, Dialect};
 use strobe_scene::meta::MetaValues;
 
@@ -271,6 +273,12 @@ impl Post {
     /// [`Self::apply`] returned `true` this frame.
     pub fn output_texture(&self) -> &Texture {
         &self.target
+    }
+
+    /// The frame as a sender may share it, for Spout's zero-copy path
+    /// (D570). Made and used inside a frame, never kept.
+    pub fn output_share(&self) -> TextureShare {
+        self.target.share()
     }
 
     /// Draws the processed frame into the default framebuffer, letterboxed

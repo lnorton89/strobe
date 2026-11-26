@@ -43,6 +43,28 @@ which backend proved a claim.
 
 ### In flight
 
+- **NDI and Spout output: built and wired (2026-11-26, D570, D571).**
+  `docs/research/m06-ndi-spout.md` replaces M-06's "deferred research" with
+  the SDK story (neither output needs a build-time SDK: `grafton-ndi` 3.0
+  loads an NDI 6 runtime, Spout's library is found by the loader), NDI's
+  licensing duties (a link to ndi.video beside every place NDI is chosen,
+  in the docs and on the site, and no redistribution of its tools), the
+  numbers (UYVY at 1080p60 is 249 MB/s against BGRA's 498, and Spout copies
+  nothing through the CPU), the tap after the post stage, and the failure
+  policy. `strobe-output` holds the tested core: `Frame`, BGRA and UYVY
+  4:2:2 packing, `Sink`/`Output` with one line per outage and frames dropped
+  rather than queued, and runtime probes. The two senders are in: Spout
+  shares the post stage's texture with nothing read back, calling the
+  installed library's mangled ABI (D571), and NDI sits behind the `ndi`
+  feature, sending RGBA from the synchronous readback. `strobe-gfx` lends
+  the texture, and the app taps it after the post stage from
+  `strobe_app::output`, with `--spout`/`--ndi` and Settings > Output.
+  **Left:** the full-size readback ring, `Alpha Channel`, and the
+  measurement (M-06). Not verifiable here yet: the only Spout library on
+  this machine is 32-bit and refused by the 64-bit loader, no x64 NDI
+  runtime is installed, and a Spout receiver is needed to see the picture
+  arrive.
+
 - **The library's scenes are prerendered, and launch opens on the Library
   (2026-11-03, D542, D543):** at launch and on a rescan every scene is
   loaded at 1x1, drawn once and parked lean (its render targets let go),

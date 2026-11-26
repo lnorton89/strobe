@@ -86,6 +86,7 @@ pub mod library;
 pub mod localtime;
 pub mod motion;
 pub mod mouse;
+mod output;
 pub mod output_monitor;
 pub mod palette;
 pub mod perf;

@@ -132,6 +132,16 @@ pub struct Cli {
     /// or the monitor picker (D96).
     #[arg(long)]
     pub show_output: bool,
+    /// Share the output through Spout (Windows only) under this name, which
+    /// a receiver such as Resolume or OBS lists (D570, D571). Off unless
+    /// asked for here or in Settings > Output.
+    #[arg(long, value_name = "NAME")]
+    pub spout: Option<String>,
+    /// Share the output over the network through NDI under this name, which
+    /// a receiver such as NDI Studio Monitor lists (D570). Off unless asked
+    /// for here or in Settings > Output. Needs the NDI 6 runtime installed.
+    #[arg(long, value_name = "NAME")]
+    pub ndi: Option<String>,
     /// Put the output fullscreen at launch: on `--output-monitor` if given,
     /// else on the monitor the output window opens on. For a venue
     /// autostart, where nobody is there to press F11.
@@ -430,6 +440,25 @@ mod tests {
         assert_eq!(cli.library, PathBuf::from("scenes"), "library");
         assert_eq!(cli.gl, GlArg::Auto, "backend");
         assert!(cli.screenshot.is_none(), "no screenshot");
+        Ok(())
+    }
+
+    #[test]
+    fn sharing_flags_name_a_sender_and_are_off_by_default() -> Result<()> {
+        let cli = Cli::try_parse_from(["strobe"])?;
+        assert!(cli.spout.is_none(), "no Spout unless asked");
+        assert!(cli.ndi.is_none(), "no NDI unless asked");
+        let cli = Cli::try_parse_from(["strobe", "--spout", "Mix", "--ndi", "Strobe Out"])?;
+        assert_eq!(
+            cli.spout.as_deref(),
+            Some("Mix"),
+            "--spout names the sender"
+        );
+        assert_eq!(
+            cli.ndi.as_deref(),
+            Some("Strobe Out"),
+            "--ndi names the sender"
+        );
         Ok(())
     }
 
