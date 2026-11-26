@@ -108,6 +108,11 @@
 - **Work:** fix or explain each: the resume message's order, a bad thumbnail logged once and shown as missing, the monitor's first try retried before it is logged, the title set on both backends, and whether `diagnose.txt` keeps the previous one.
 - **Acceptance:** a clean packaged run on the T480 logs none of the first three, and the title reads "Strobe" on both backends (read with EnumWindows or a screenshot, not `MainWindowTitle`).
 
+### R-10 Move off `chrono`
+- **Status:** Open. RUSTSEC-2026-0543 lists `chrono` as unmaintained, and `deny.toml` ignores it with its reason until this is done (D568). Two calls use it: `strobe_app::localtime::system_offset_seconds` (the UTC offset for `strobe_Date`) and `strobe_projector::audit` (a local `%Y-%m-%dT%H:%M:%S%z` timestamp).
+- **Work:** choose the replacement. `jiff` reads the local zone on Windows, macOS and Linux, but would be a new dependency. `time` is already in the lock file, but cannot read the local offset once threads run on Linux. Move both calls, drop `chrono` from the workspace, remove the `deny.toml` entry, and regenerate `THIRD_PARTY.md`.
+- **Acceptance:** `cargo deny check advisories` passes with no `chrono` entry. `localtime`'s tests and the projector's audit line read the same as before on Windows and Linux.
+
 ## Epic U — Performer UI and app workflows
 
 ### U-01 Command palette and command discovery

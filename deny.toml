@@ -18,6 +18,12 @@ ignore = [
     # its own in strobe.exe, and there is no newer release to move to.
     # Cleared when a nokhwa release drops it, or capture moves off nokhwa.
     { id = "RUSTSEC-2024-0436", reason = "paste is a build-time proc-macro of nokhwa's; unmaintained, not vulnerable (D530)" },
+    # chrono 0.4.45, unmaintained (RUSTSEC-2026-0543, every version). Ours,
+    # in strobe-app (localtime: the UTC offset for strobe_Date) and
+    # strobe-projector (audit: a local ISO timestamp). No vulnerability is
+    # reported and there is no maintained release to move to. Cleared when
+    # those two calls move to another crate (backlog R-10, D568).
+    { id = "RUSTSEC-2026-0543", reason = "chrono is unmaintained, not vulnerable; two calls, to be replaced (R-10, D568)" },
 ]
 
 [licenses]
