@@ -186,6 +186,15 @@ pub struct Cli {
     /// "camera:<name>"` takes, and how long listing took; then exit (D528).
     #[arg(long)]
     pub list_cameras: bool,
+    /// Print the Spout senders running on this machine, by the names
+    /// `--media "spout:<name>"` takes; then exit (D575).
+    #[arg(long)]
+    pub list_spout: bool,
+    /// Print the NDI sources found on the network (waiting up to two
+    /// seconds for the first), by the names `--media "ndi:<name>"` takes;
+    /// then exit (D575).
+    #[arg(long)]
+    pub list_ndi: bool,
     /// Open these panes at launch (comma separated): `browser`, `controls`,
     /// `import`, `inspector`, `diagnostics`, `settings`, or `settings:<page>`
     /// for one page of Settings (`settings:audio`). Added to whatever the
@@ -215,7 +224,9 @@ pub struct Cli {
     /// scene loaded by hand, in place of the scene's own `MEDIA`. It is
     /// decoded off the frame thread. Scenes a playlist plays keep their own.
     /// `camera:<name>` shows that webcam instead, by the name
-    /// `--list-cameras` prints (D528).
+    /// `--list-cameras` prints (D528); `spout:<name>` a Spout sender and
+    /// `ndi:<name>` an NDI source, by the names `--list-spout` and
+    /// `--list-ndi` print (D575).
     #[arg(long, value_name = "PATH")]
     pub media: Option<PathBuf>,
     /// In screenshot mode, ask for this scene to be loaded through the UI's
@@ -442,6 +453,19 @@ fn parse_share_size(text: &str) -> Result<ShareSize, String> {
 }
 
 impl Cli {
+    /// The kind of live source to list and exit, if one was asked for
+    /// (`--list-cameras`, `--list-spout`, `--list-ndi`; the first wins).
+    pub fn list_live(&self) -> Option<strobe_scene::live::Kind> {
+        use strobe_scene::live::Kind;
+        [
+            (self.list_cameras, Kind::Camera),
+            (self.list_spout, Kind::Spout),
+            (self.list_ndi, Kind::Ndi),
+        ]
+        .into_iter()
+        .find_map(|(asked, kind)| asked.then_some(kind))
+    }
+
     /// Whether a library that cannot be read is no fault: this run controls
     /// another Strobe (`--control`) and was not pointed at a library, so the
     /// default `scenes` folder (resolved against the working directory) has

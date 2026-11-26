@@ -739,13 +739,29 @@ they apply, and explicit supported, degraded or unsupported claims.
   and thread cap); `crates/strobe-gfx/tests/live.rs` on headless GL in both
   dialects (upright with `syn_MediaType` 3, ten pictures into one texture
   with no driver query, a failure black and said once with its action, then
-  back; llvmpipe in CI, skipped on Windows); `strobe_app::camera`'s tests
+  back; llvmpipe in CI, skipped on Windows); `strobe_app::live`'s tests
   against the real Media Foundation listing on the AMD desktop, which has no
   camera. **Acceptance, still open:** the camera checklist in
   [research/m04-webcam.md](research/m04-webcam.md): `--list-cameras` with a
   camera, the formats picked, glass-to-glass latency, the T480's capture
   and upload cost, unplug and replug, in use and blocked, sleep and resume,
   a 4-hour soak flat in private memory (the #251 fix), OBS's virtual camera.
+- [ ] Spout and NDI input behind `syn_Media` (backlog M-07, D575). **Spout
+  verified on LIGHTNING (Windows 10, RX 580), 2026-11-26; NDI not.**
+  Evidence: Strobe sending a known gradient with `--spout StrobeCheck
+  --share-size 640x360`, a second instance receiving it with `--media
+  spout:StrobeCheck` in screenshot mode: `--list-spout` lists it; the
+  received picture is upright and exact (marker 255,255,191; blue 191 is
+  `syn_MediaType` 3); killing the sender gives one warning and one asset
+  record and black with type 0; starting the receiver first says "not
+  running" once and the picture arrives by itself when the sender starts.
+  Tests: `strobe_scene::live`, `strobe_capture::convert`,
+  `strobe-gfx/tests/live.rs` (both kinds, both dialects),
+  `strobe_app::live` and `strobe_app::share_input`. **Acceptance, still
+  open:** NDI input with a runtime installed; a third-party sender
+  (Resolume, TouchDesigner, OBS) as the source; the Media row's Spout and
+  NDI buttons clicked on screen; the capture-thread copy's cost on the
+  T480.
 - [x] Load cubemaps, and report missing or invalid assets without
   crashing the show (D185). Evidence, llvmpipe, both dialects: a fixture
   samples +X, -X, +Y, -Y, +Z and -Z and gets each face's colour from six

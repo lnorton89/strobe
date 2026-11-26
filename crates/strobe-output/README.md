@@ -11,7 +11,9 @@ touches GL.
 - **Depends on:** `log`, and nothing else. No Strobe crate, no GL, no
   window, no network.
 - **Depended on by:** `strobe-app` (`strobe_app::output`), which takes the
-  picture from `strobe_gfx::share` and hands it to the senders (D573).
+  picture from `strobe_gfx::share` and hands it to the senders (D573), and
+  `strobe_app::share_input`, which drives the receivers through
+  `strobe-capture`'s supervisor for `syn_Media` (D575).
 - **Does not:** draw anything, own the render loop, decide what is on
   screen, or block the frame. A frame that cannot be sent is dropped and
   counted, never queued.
@@ -24,6 +26,9 @@ touches GL.
 | `Pixels`, `Layout` | A picture lent for one call: RGBA or UYVY 4:2:2, rows top first. What `Sink::send` takes, so the host's buffer is never copied to cross. |
 | `SpoutSender` | Spout (Windows): shares a GL texture through the 2.007 library's vtable (D572, D573), creating the sender on the first frame, `UpdateSender` on a resize, and `Release` on drop. |
 | `NdiSender`, `NdiOptions` | NDI (the `ndi` feature): name, groups and frame rate; UYVY or RGBA submitted asynchronously; `receivers()` is NDI's connection count. `ndi::TRADEMARK` and `ndi::TOOLS_URL` are the lines NDI's licence asks for. |
+| `SpoutReceiver`, `spout_senders` | Spout input (Windows, D575): the senders running now, and one sender read with `ReceiveImage` into a reused buffer, RGBA top row first, on the thread that opened it (Spout's own hidden GL context). Not `Send`. |
+| `NdiFinder`, `NdiReceiver` | NDI input (the `ndi` feature, D575): one finder per process that keeps discovering, and a receiver that asks NDI for RGBX/RGBA and copies each frame into a reused buffer. |
+| `Received`, `Order` | What a receiver hands back: size and byte order (RGBA or BGRA) of the picture in the caller's buffer. |
 | `pixel::to_bgra` | RGBA to BGRA into a reused buffer, alpha kept. |
 | `pixel::to_uyvy` | RGBA to UYVY 4:2:2 (BT.709, limited range) at a chosen stride, chroma averaged over each pixel pair, padded tails zeroed. Half the bytes of BGRA, which is why it goes first. |
 | `pixel::bgra_len`, `pixel::uyvy_len` | The buffer a frame needs. |
@@ -86,7 +91,14 @@ IDs given here; a gap with no ID is by design, with its decision named.
   readback) is unmeasured on real hardware; it is the number backlog M-06's
   acceptance test wants (backlog M-06).
 - One sender of each kind, carrying the final picture: a second, clean feed
-  and Spout or NDI input are later work (backlog M-06).
+  is later work (backlog M-06).
+- Spout input is verified end to end on the development machine (Strobe to
+  Strobe, upright and exact, lost and back); NDI input has not received a
+  frame, for want of an x64 runtime, and no third-party sender has been the
+  source (backlog M-07).
+- Spout input reads the picture back on the capture thread and the app
+  uploads it, as a camera's; the zero-copy `ReceiveTexture` path is not
+  taken until the T480 measures that cost (backlog M-07).
 - `pixel::to_bgra` and `pixel::to_uyvy` are the CPU reference for the GPU
   packing in `strobe_gfx::share`; the app sends what the GPU packed, by
   design (D573).

@@ -14,8 +14,10 @@
 //! - [`script`], [`mouse`]: a scene's `script.js` at run time, and the
 //!   pointer uniforms it and the shaders read.
 //! - [`audio`]: live capture or synthetic audio, and its settings.
-//! - [`camera`]: webcams behind `syn_Media` (D528): the registry the player
-//!   asks for a camera by name, and listing cameras off the frame thread.
+//! - [`live`]: live sources behind `syn_Media`, webcams (D528) and Spout
+//!   and NDI input (D575): the registry the player asks for a source by
+//!   name, and listing each kind off the frame thread; [`share_input`] is
+//!   the Spout and NDI capture backends.
 //! - [`session`]: the one active scene and the render-scale arithmetic.
 //! - [`song`]: hearing a new song once a frame (or the operator saying so),
 //!   for a scene's transitions and a playlist's `audio-song` cues (D489).
@@ -62,7 +64,6 @@ pub mod app;
 pub mod audio;
 pub mod awake;
 pub mod brand;
-pub mod camera;
 pub mod cli;
 pub mod color;
 pub mod command_palette;
@@ -83,6 +84,7 @@ pub mod import;
 pub mod intake;
 pub mod lan;
 pub mod library;
+pub mod live;
 pub mod localtime;
 pub mod motion;
 pub mod mouse;
@@ -102,6 +104,7 @@ pub mod remote_controls;
 pub mod screenshot;
 pub mod script;
 pub mod session;
+pub mod share_input;
 pub mod show;
 pub mod snapshot;
 pub mod song;

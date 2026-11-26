@@ -73,6 +73,18 @@ which backend proved a claim.
   1080p on the RX 580 the NDI path costs the frame 0.54 ms of CPU, against
   5.8 ms for the first cut.
 
+- **Spout and NDI input behind `syn_Media` (2026-11-26, D575, M-07).** The
+  input half of issue #116: a Spout sender is the media choice
+  `spout:<name>` and an NDI source `ndi:<name>`, beside `camera:<name>`,
+  from the Inspector's Media row (Spout, NDI), `--media`, a cue or a
+  preset; `--list-spout` and `--list-ndi` print the names. Both run on the
+  webcam's capture supervisor (watchdog, reconnect by name, said once,
+  black when lost), with one upload a frame into one reused texture and
+  `syn_MediaType` 3. An idle sender keeps its last picture. Verified on
+  LIGHTNING Strobe to Strobe over Spout: upright and exact, lost and back.
+  **Left:** NDI input with a runtime, a third-party sender as the source,
+  the T480's cost of the capture-thread copy, and the Media Overlay (C-01).
+
 - **The library's scenes are prerendered, and launch opens on the Library
   (2026-11-03, D542, D543):** at launch and on a rescan every scene is
   loaded at 1x1, drawn once and parked lean (its render targets let go),

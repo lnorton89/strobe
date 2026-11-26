@@ -82,6 +82,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D553](decisions/D553.md): Shadertoy cube-map inputs become scene cube maps, the keyboard is 256x3 with every key up, and the Needs-work bin is closed
 - [D567](decisions/D567.md): a desktop controller can watch the host's frame timing live, one sample a second, without the picture stream
 - [D568](decisions/D568.md): cargo-deny ignores RUSTSEC-2026-0543, `chrono` unmaintained, until its two calls move
+- [D575](decisions/D575.md): Spout and NDI input are live media sources, `spout:<name>` and `ndi:<name>`, on the webcam's capture path
 
 ## strobe-audio
 
@@ -147,10 +148,11 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-capture
 
-2 decision(s).
+3 decision(s).
 
 - [D528](decisions/D528.md): a webcam is a media choice, `camera:<name>`, captured by `strobe-capture`
 - [D570](decisions/D570.md): NDI and Spout output leave through one seam, NDI over a readback and Spout over the texture
+- [D575](decisions/D575.md): Spout and NDI input are live media sources, `spout:<name>` and `ndi:<name>`, on the webcam's capture path
 
 ## strobe-conventions
 
@@ -200,7 +202,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-gfx
 
-46 decision(s).
+47 decision(s).
 
 - [D40](decisions/D40.md): our own `log` backend in `strobe-diag`, not tracing or env_logger
 - [D41](decisions/D41.md): unsafe is allowed in exactly one `strobe-diag` file
@@ -248,6 +250,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D558](decisions/D558.md): the sandbox generates controls a step per animation frame, on the app's own engine and settings
 - [D559](decisions/D559.md): /play rebuilds its engine when the WebGL context comes back
 - [D573](decisions/D573.md): Sharing works the way VJ tools do: saved, sized, blacked out, UYVY on the GPU, idle with no receivers
+- [D575](decisions/D575.md): Spout and NDI input are live media sources, `spout:<name>` and `ndi:<name>`, on the webcam's capture path
 
 ## strobe-io
 
@@ -262,10 +265,11 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-output
 
-2 decision(s).
+3 decision(s).
 
 - [D570](decisions/D570.md): NDI and Spout output leave through one seam, NDI over a readback and Spout over the texture
 - [D573](decisions/D573.md): Sharing works the way VJ tools do: saved, sized, blacked out, UYVY on the GPU, idle with no receivers
+- [D575](decisions/D575.md): Spout and NDI input are live media sources, `spout:<name>` and `ndi:<name>`, on the webcam's capture path
 
 ## strobe-playlist
 
@@ -318,7 +322,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-scene
 
-30 decision(s).
+31 decision(s).
 
 - [D61](decisions/D61.md): audio is the app's, started on a thread, falls back to synthetic by capture state
 - [D73](decisions/D73.md): the playlist model is authored data, resolved once into a flat view
@@ -350,6 +354,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D553](decisions/D553.md): Shadertoy cube-map inputs become scene cube maps, the keyboard is 256x3 with every key up, and the Needs-work bin is closed
 - [D554](decisions/D554.md): the sandbox's scene is its files: pictures added, includes resolved, the picture read back, presets as files
 - [D558](decisions/D558.md): the sandbox generates controls a step per animation frame, on the app's own engine and settings
+- [D575](decisions/D575.md): Spout and NDI input are live media sources, `spout:<name>` and `ndi:<name>`, on the webcam's capture path
 
 ## strobe-script
 

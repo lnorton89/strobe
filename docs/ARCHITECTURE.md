@@ -113,8 +113,11 @@ the page's one context, a step at a time (D558).
   Media Foundation, Windows only; no backend elsewhere yet) and convert each
   picture to RGBA into a `Sink`. The app's sink writes into a
   `strobe_gfx::live::Mailbox`, so neither crate knows the other, and the
-  player asks for a camera through the `LiveSources` hook the app installs
-  at start (`strobe_app::camera`).
+  player asks for a live source through the `LiveSources` hook the app
+  installs at start (`strobe_app::live`). Spout and NDI input run on the
+  same supervisor as two more `Backend`s (`strobe_app::share_input`), over
+  `strobe-output`'s receivers; a media choice names its kind as
+  `camera:`, `spout:` or `ndi:` (`strobe_scene::live`, D575).
 - `strobe-output` is the seam a finished picture leaves through (D570):
   the frame, the BGRA and UYVY packing a sender wants, `Sink` for one
   destination and `Output` with the show's failure policy, plus probes for

@@ -330,6 +330,18 @@ has a place, and they are not the same size:
   a receive path and its own failure wording, and only scenes that read
   `syn_Media` would see it until the Media Overlay (C-01) lands. It belongs
   in M-04's family, not M-06, and should be its own item.
+  **Built (D575, backlog M-07), with NDI input beside it:** `spout:<name>`
+  and `ndi:<name>` run on the webcam's capture supervisor. Spout reads on
+  the capture thread through Spout's own hidden GL context
+  (`CreateOpenGL`, then `ReceiveTexture` with no texture to learn the size
+  and `ReceiveImage` into a reused buffer); the receiver's vtable slots were
+  read from `cl`'s listing of a probe, as the sender's were: SetReceiverName
+  16, ReleaseReceiver 18, ReceiveTexture 19, ReceiveImage 20, IsUpdated 21,
+  IsConnected 22, IsFrameNew 23, GetSenderName 24, GetSenderWidth 25,
+  GetSenderHeight 26, GetSenderFps 28, GetSenderFrame 29, GetSenderCount
+  58, GetSender 59, CreateOpenGL 98, CloseOpenGL 99 (SendTexture 4,
+  CreateSender 70 and Release 174 cross-check against the sender's).
+  Verified Strobe to Strobe on LIGHTNING.
 - **ISF import**, mentioned in passing in the issue, is a separate item
   (PLAN.md puts ISF import out of v1).
 

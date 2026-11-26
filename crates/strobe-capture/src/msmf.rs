@@ -69,10 +69,14 @@ impl Backend for MediaFoundation {
             cause: crate::Cause::Unreadable,
             detail: "the camera offers no format Strobe reads".to_string(),
         })?;
+        let wanted = frame_format(chosen.format).ok_or_else(|| Problem {
+            cause: crate::Cause::Unreadable,
+            detail: format!("Media Foundation has no request for {}", chosen.format),
+        })?;
         let exact =
             RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(CameraFormat::new(
                 Resolution::new(chosen.width, chosen.height),
-                frame_format(chosen.format),
+                wanted,
                 chosen.fps,
             )));
         camera
@@ -158,13 +162,16 @@ fn offer(format: &CameraFormat) -> Offer {
     }
 }
 
-fn frame_format(format: PixelFormat) -> FrameFormat {
+/// The request for `format`; `None` for the four-byte layouts, which only
+/// Spout and NDI send and no camera offers.
+fn frame_format(format: PixelFormat) -> Option<FrameFormat> {
     match format {
-        PixelFormat::Yuy2 => FrameFormat::YUYV,
-        PixelFormat::Nv12 => FrameFormat::NV12,
-        PixelFormat::Mjpeg => FrameFormat::MJPEG,
-        PixelFormat::Gray => FrameFormat::GRAY,
-        PixelFormat::Rgb => FrameFormat::RAWRGB,
-        PixelFormat::Bgr => FrameFormat::RAWBGR,
+        PixelFormat::Yuy2 => Some(FrameFormat::YUYV),
+        PixelFormat::Nv12 => Some(FrameFormat::NV12),
+        PixelFormat::Mjpeg => Some(FrameFormat::MJPEG),
+        PixelFormat::Gray => Some(FrameFormat::GRAY),
+        PixelFormat::Rgb => Some(FrameFormat::RAWRGB),
+        PixelFormat::Bgr => Some(FrameFormat::RAWBGR),
+        PixelFormat::Rgba | PixelFormat::Bgra => None,
     }
 }

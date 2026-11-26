@@ -342,7 +342,7 @@
 ## Epic M — Media and transitions
 
 ### M-01 SSF media/cubemap specification audit
-- **Status:** Audited against SSF's documentation (TORNADO T21, Q22; D238). Matches: `IMAGES {NAME, PATH}`, `CUBEMAPS {NAME, PATHS}` in GL face order, `syn_MediaType` 0 none / 1 image, `MEDIA` as a slot with `WRAP`/`FILTER`. Fixed: media the operator chooses is now sampled with the slot's `WRAP`/`FILTER`, defaulting to repeat/linear as SSF documents (it was always clamp). Divergences kept: Strobe's own `MEDIA` path form (a scene's own picture or sequence); video (2), NDI and Spout are not inputs (M-04); a webcam (3) is, on Windows, chosen by the operator, a cue or a preset (D528). Left: cube-face orientation against a real Synesthesia render (undocumented); the undocumented user-media helpers (`_loadUserImage` and family) that eight real scenes use.
+- **Status:** Audited against SSF's documentation (TORNADO T21, Q22; D238). Matches: `IMAGES {NAME, PATH}`, `CUBEMAPS {NAME, PATHS}` in GL face order, `syn_MediaType` 0 none / 1 image, `MEDIA` as a slot with `WRAP`/`FILTER`. Fixed: media the operator chooses is now sampled with the slot's `WRAP`/`FILTER`, defaulting to repeat/linear as SSF documents (it was always clamp). Divergences kept: Strobe's own `MEDIA` path form (a scene's own picture or sequence); video (2) is not an input (M-04); a Spout sender or NDI source reads 3, as SSF gives a shared texture no value of its own (M-07, D575); a webcam (3) is, on Windows, chosen by the operator, a cue or a preset (D528). Left: cube-face orientation against a real Synesthesia render (undocumented); the undocumented user-media helpers (`_loadUserImage` and family) that eight real scenes use.
 - **Work:** compare MEDIA, CUBEMAPS and syn_MediaType handling against authoritative SSF docs and representative scenes; verify cubemap orientation and image slot semantics.
 - **Acceptance:** fixtures cover each documented shape; supported, degraded and unsupported forms are written down; malformed assets fail visibly without crashing the show.
 
@@ -357,7 +357,7 @@
 - **Acceptance:** long sequence memory is bounded/documented; decoding stays off the frame thread; missed frames degrade gracefully.
 
 ### M-04 Video and webcam input
-- **Status:** **Webcam built on Windows (D528, D529, D530), 2026-11-03; waiting on a camera.** The proposal ([research/m04-webcam.md](research/m04-webcam.md)) was approved on 2026-11-03 and its steps 1-5 and 7 are built: `strobe-capture` (listing, a capture thread per camera with a 5 s watchdog and reconnect by name, YUY2/NV12/MJPEG to RGBA, nokhwa on Media Foundation with default features off; no backend on Linux and macOS yet); a camera is the media choice `camera:<name>` in the Inspector's Media row (Camera), `--media`, a cue or a preset, with D217's precedence; one upload a frame into one reused texture with the slot's `WRAP`/`FILTER` and `syn_MediaType` 3; a failure reads black, is said once with an action naming the likely cause, and the camera comes back by itself; `strobe --list-cameras`. nokhwa's per-frame `IMFSample` leak (upstream #251) is patched in `vendor/` (D529) and cargo-deny's `paste` advisory is ignored with its reason (D530). Tested against a fake camera on every OS and on headless GL in both dialects; the AMD desktop it was built on has no camera. **Left:** the proposal's camera checklist (real latency, the formats real cameras offer, unplug and replug, in use and blocked error texts, sleep and resume, a 4-hour soak for the leak, OBS's virtual camera, the T480's cost); step 6, the Media Overlay, which makes a camera show in scenes that don't read `syn_Media` and waits on C-01's media group; Linux (V4L2) and macOS (AVFoundation) capture; video files (a decoder decision of their own); Spout and NDI input.
+- **Status:** **Webcam built on Windows (D528, D529, D530), 2026-11-03; waiting on a camera.** The proposal ([research/m04-webcam.md](research/m04-webcam.md)) was approved on 2026-11-03 and its steps 1-5 and 7 are built: `strobe-capture` (listing, a capture thread per camera with a 5 s watchdog and reconnect by name, YUY2/NV12/MJPEG to RGBA, nokhwa on Media Foundation with default features off; no backend on Linux and macOS yet); a camera is the media choice `camera:<name>` in the Inspector's Media row (Camera), `--media`, a cue or a preset, with D217's precedence; one upload a frame into one reused texture with the slot's `WRAP`/`FILTER` and `syn_MediaType` 3; a failure reads black, is said once with an action naming the likely cause, and the camera comes back by itself; `strobe --list-cameras`. nokhwa's per-frame `IMFSample` leak (upstream #251) is patched in `vendor/` (D529) and cargo-deny's `paste` advisory is ignored with its reason (D530). Tested against a fake camera on every OS and on headless GL in both dialects; the AMD desktop it was built on has no camera. **Left:** the proposal's camera checklist (real latency, the formats real cameras offer, unplug and replug, in use and blocked error texts, sleep and resume, a 4-hour soak for the leak, OBS's virtual camera, the T480's cost); step 6, the Media Overlay, which makes a camera show in scenes that don't read `syn_Media` and waits on C-01's media group; Linux (V4L2) and macOS (AVFoundation) capture; video files (a decoder decision of their own). Spout and NDI input are their own item, M-07 (D575).
 - **Work:** run the checklist on a machine with a camera (the T480's built-in one, and a USB camera on the AMD desktop for unplugging) and tick what it shows; then the overlay with C-01.
 - **Acceptance:** each checklist item recorded with its machine and result; the 4-hour soak flat in private memory; unplug, replug, in use and blocked each said once with the right advice and recovered without a restart.
 ### M-05 Song-change transitions
@@ -395,7 +395,7 @@
     - The frame cost on the T480 (`strobe-bench --share` there).
   - **Left, in demand order:**
     - More than two senders, or a clean NDI stream: a list of senders, each with a source, a protocol and a name (D574).
-    - Spout and NDI input as a media source (M-04's family, its own item).
+    - Spout and NDI input as a media source: its own item, M-07 (D575).
     - NDI audio.
     - Alpha (D248).
     - 16-bit output.
@@ -407,6 +407,22 @@
   - A 30-minute NDI stream to a second machine, and a Spout receiver on the same machine.
   - Each outage said once.
   - A flat-memory soak.
+
+### M-07 Spout and NDI input
+- **Status:** **Built (D575), 2026-11-26; Spout verified on LIGHTNING, NDI not.** The input half of [lnorton89/strobe#116](https://github.com/lnorton89/strobe/issues/116), placed in M-04's family by the M-06 research page.
+  - **Built:**
+    - A Spout sender is the media choice `spout:<name>`, an NDI source `ndi:<name>` (`strobe_scene::live`), everywhere a media choice is a path: the Inspector's Media row (Spout, NDI, beside Camera, each listing on its own thread), `--media`, a cue, a preset. `--list-spout` and `--list-ndi` print the names.
+    - Both run on `strobe-capture`'s supervisor as two more backends (`strobe_app::share_input`, over `strobe-output`'s `SpoutReceiver` and `NdiReceiver`): watchdog, reconnect by name, a failure said once and black with type 0, retirement when unshown, one capture shared by every player.
+    - One upload a frame into one reused texture, `syn_MediaType` 3 (Q22), no allocation or driver query unless the size changes.
+    - Spout reads on the capture thread with Spout's own hidden GL context; NDI asks for RGBX/RGBA. An idle sender keeps its last picture; no first picture in 3 s, a closed sender or a disconnected source fails at once. Failure actions are worded for each kind.
+  - **Verified (LIGHTNING, Windows 10, RX 580):** Strobe sending a known gradient through `--spout`, a second instance receiving it: listed; upright and exact with type 3; killing the sender said once and black; starting the receiver first said once, then the picture by itself when the sender starts.
+  - **Not verified:** NDI input (no x64 NDI runtime here, as for M-06); a third-party sender (Resolume, TouchDesigner, OBS) as the source; the Media row's buttons clicked on screen; the capture-thread copy's cost on the T480.
+  - **Left:** zero-copy Spout input (`ReceiveTexture` into the player's texture on the render thread) if the T480 finds the copy costly; the Media Overlay, so a feed shows in scenes that do not read `syn_Media` (C-01); NDI audio.
+- **Work:** run NDI input against NDI Tools' test patterns or OBS with DistroAV on a machine with the runtime; receive Resolume's or OBS's Spout output; time the copy on the T480 (the supervisor logs the conversion cost every minute).
+- **Acceptance:**
+  - An NDI source and a third-party Spout sender each shown upright with type 3.
+  - Each outage (the sender closed, the network pulled) said once, black, and back without a restart.
+  - The T480's frame time with a 720p feed showing, against none.
 
 ## Epic L — LAN remote and PWA
 

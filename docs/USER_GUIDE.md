@@ -264,7 +264,8 @@ Scenes react to sound through the default **recording** device.
 ## Media behind a scene
 
 Scenes that read `syn_Media` show a picture, a looping folder of
-pictures (PNG or JPEG) or, on Windows, a webcam.
+pictures (PNG or JPEG) or, on Windows, a webcam, a Spout sender or an
+NDI source.
 
 - In the panel's Scene tab, **Media > Choose** takes a file or folder
   path; *Scene's own* gives the scene its own back. Dropping a picture or a folder of
@@ -275,6 +276,17 @@ pictures (PNG or JPEG) or, on Windows, a webcam.
   A camera that fails or is unplugged shows black, says so once, and comes
   back by itself when it can. **It has not yet been tried with a real
   camera**; please report what you find.
+- **Media > Spout** lists the Spout senders running on this computer
+  (Resolume, TouchDesigner, OBS with its Spout plugin, another Strobe) and
+  shows the one you click; **Media > NDI** lists the NDI sources found on
+  the network. From the command line, `--list-spout` and `--list-ndi`
+  print their names, and `--media "spout:<name>"` or `--media
+  "ndi:<name>"` shows one; a cue can name one the same way. A sender that
+  pauses keeps its last picture; one that closes shows black, says so
+  once, and comes back by itself when it starts again. Spout needs the
+  64-bit `SpoutLibrary.dll`, as Spout output does; NDI needs the NDI 6
+  runtime from NDI Tools ([ndi.video/tools](https://ndi.video/tools/)).
+  NDI input **has not yet been tried with a real source**.
 - A playlist cue can name its own media, and that wins for the cue.
 - Very long sequences are shrunk to fit 192 MiB of memory rather than cut
   short.

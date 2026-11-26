@@ -2,9 +2,11 @@
 // Module:       strobe_gfx::media
 // Description:  The picture behind syn_Media on the render thread: a still or
 //               an image sequence, uploaded once as its frames arrive from the
-//               decoder thread, or a camera, uploaded into one reused texture.
+//               decoder thread, or a live source (camera, Spout, NDI),
+//               uploaded into one reused texture.
 //
-// Dependencies: crate::assets (decoder thread), crate::live (cameras),
+// Dependencies: crate::assets (decoder thread), crate::live (cameras, Spout
+//               and NDI input),
 //               crate::gl
 // ============================================================================
 
@@ -23,8 +25,9 @@
 //! picture. Until the first picture lands `syn_Media` is black and
 //! `syn_MediaType` is 0, which is also what a scene with no media sees.
 //!
-//! A **camera** (a request for `camera:<name>`, D528) is a live source: its
-//! capture thread puts pictures in a [`Mailbox`], and [`Media::poll`] takes
+//! A **camera** (a request for `camera:<name>`, D528) is a live source, and
+//! so are a Spout sender (`spout:<name>`) and an NDI source (`ndi:<name>`,
+//! D575): its capture thread puts pictures in a [`Mailbox`], and [`Media::poll`] takes
 //! at most one a frame and writes it with `Gl::upload` into **one reused
 //! texture**, sampled with the slot's `WRAP` and `FILTER`. Only a new
 //! picture size makes a new texture. While it shows, `syn_MediaType` is 3;
@@ -91,10 +94,10 @@ impl Media {
     /// Starts decoding `request` in the background, or, for a camera,
     /// asks the host's live sources for its mailbox.
     pub(crate) fn start(request: MediaRequest) -> Result<Self, String> {
-        if let Some(name) = strobe_scene::camera::name_of(&request.path) {
+        if let Some(source) = strobe_scene::live::source_of(&request.path) {
             let sources = crate::live::sources()
-                .ok_or_else(|| format!("camera \"{name}\": this program has no camera input"))?;
-            let mailbox = sources.camera(name);
+                .ok_or_else(|| format!("{source}: this program has no live input"))?;
+            let mailbox = sources.open(source);
             return Ok(Self {
                 request: Some(request),
                 live: Some(Live {

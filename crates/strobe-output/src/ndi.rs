@@ -79,6 +79,26 @@ impl std::fmt::Debug for NdiSender {
     }
 }
 
+/// Loads the NDI 6 runtime for `purpose` (`NDI output`, `NDI input`), or
+/// says in one line where to get it. The loader's list of every folder it
+/// tried goes to the log, not to a Settings row.
+#[cfg(feature = "ndi")]
+pub(crate) fn runtime(purpose: &str) -> Result<grafton_ndi::Ndi, Problem> {
+    grafton_ndi::Ndi::new().map_err(|error| {
+        log::info!("NDI runtime not loaded: {error}");
+        let found = crate::probe::ndi_runtime();
+        Problem::new(match found {
+            Some(path) => format!(
+                "the NDI runtime at {} would not load; reinstall NDI Tools from {TOOLS_URL} (the log has the loader's reason)",
+                path.display()
+            ),
+            None => format!(
+                "{purpose} needs the NDI 6 runtime, which is not installed; install NDI Tools from {TOOLS_URL}"
+            ),
+        })
+    })
+}
+
 #[cfg(feature = "ndi")]
 impl NdiSender {
     /// Creates a sender on an NDI 6 runtime.
@@ -94,23 +114,7 @@ impl NdiSender {
                 "an NDI sender needs a name; that is what a receiver lists",
             ));
         }
-        let ndi = grafton_ndi::Ndi::new().map_err(|error| {
-            // The loader's error lists every folder it tried, which belongs
-            // in the log, not on a Settings row.
-            log::info!("NDI runtime not loaded: {error}");
-            let found = crate::probe::ndi_runtime();
-            Problem::new(match found {
-                Some(path) => format!(
-                    "the NDI runtime at {} would not load; reinstall NDI Tools from {TOOLS_URL} \
-                     (the log has the loader's reason)",
-                    path.display()
-                ),
-                None => format!(
-                    "NDI output needs the NDI 6 runtime, which is not installed; install NDI \
-                     Tools from {TOOLS_URL}"
-                ),
-            })
-        })?;
+        let ndi = runtime("NDI output")?;
         let mut sender_options = grafton_ndi::SenderOptions::new(name).clock_video(false);
         let groups: Vec<&str> = options
             .groups

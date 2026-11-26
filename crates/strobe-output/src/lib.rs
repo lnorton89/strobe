@@ -41,17 +41,28 @@
 //! RGBA submitted asynchronously). The GPU side, which scales the picture
 //! and packs it to UYVY before it is read back, is `strobe_gfx::share`; the
 //! app joins the two (D573).
+//!
+//! The same libraries receive, too: [`SpoutReceiver`] and [`NdiReceiver`]
+//! read another program's picture into a reused buffer, on a capture thread,
+//! for `syn_Media` (D575). The app drives them through `strobe-capture`'s
+//! supervisor, as it does a webcam.
 
 pub mod frame;
 pub mod ndi;
+pub mod ndi_receive;
 pub mod pixel;
 pub mod probe;
+pub mod receive;
 pub mod sink;
 pub mod spout;
+pub mod spout_receive;
 pub mod texture;
 
 pub use frame::{Frame, Layout, Pixels};
 pub use ndi::{NdiOptions, NdiSender};
+pub use ndi_receive::{NdiFinder, NdiReceiver};
+pub use receive::{Order, Received};
 pub use sink::{Outcome, Output, Problem, Sink, Status};
 pub use spout::SpoutSender;
+pub use spout_receive::{SpoutReceiver, spout_senders};
 pub use texture::SharedTexture;

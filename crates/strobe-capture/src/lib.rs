@@ -86,6 +86,12 @@ pub trait Sink: Send + Sync + 'static {
     /// Whether anything still shows this camera. When it says no, the
     /// threads stop within a tick and close the camera.
     fn wanted(&self) -> bool;
+    /// What kind of source this is, for the log and the failure's sentence:
+    /// a camera unless the host says otherwise (a Spout sender, an NDI
+    /// source; D575).
+    fn kind(&self) -> &'static str {
+        "camera"
+    }
 }
 
 /// The cameras this system lists, by name, in its own order. Takes a few

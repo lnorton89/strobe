@@ -16,13 +16,14 @@
 //! and nothing else, under a `// SAFETY:` comment. Nothing outside them
 //! contains the word, and no test does.
 //!
-//! There are three places: `crates/strobe-gfx/src/gl/`, where every GL call
+//! There are three places (four files and a folder): `crates/strobe-gfx/src/gl/`, where every GL call
 //! and context creation lives; the single file
 //! `crates/strobe-diag/src/native.rs`, which holds the unsafe call that
 //! installs the native crash handler (decision D41) and Windows' power
-//! request (D556), each a leaf; and `crates/strobe-output/src/spout.rs`,
-//! which loads the Spout library and calls its C++-mangled sender exports,
-//! because Spout has no C ABI and no safe Rust binding (D571). An entry
+//! request (D556), each a leaf; and `crates/strobe-output/src/spout.rs` and
+//! `spout_receive.rs` beside it, which load the Spout library and call its
+//! vtable for the sender and the receiver, because Spout has no C ABI and no
+//! safe Rust binding (D571, D575). An entry
 //! ending in `/` is a directory; any other entry is exactly one file.
 //!
 //! Compiler lints check the local mechanics (`undocumented_unsafe_blocks`,
@@ -35,10 +36,11 @@ use std::collections::HashMap;
 
 /// The places allowed to hold unsafe code: a directory (trailing `/`) or
 /// exactly one file.
-pub const ALLOWED: [&str; 3] = [
+pub const ALLOWED: [&str; 4] = [
     "crates/strobe-gfx/src/gl/",
     "crates/strobe-diag/src/native.rs",
     "crates/strobe-output/src/spout.rs",
+    "crates/strobe-output/src/spout_receive.rs",
 ];
 
 /// This crate's own sources, which spell the keyword in their checks.
@@ -176,6 +178,14 @@ mod tests {
         assert!(
             violations("crates/strobe-output/src/spout.rs", &text).is_empty(),
             "one operation in the Spout leaf is allowed (D571)"
+        );
+        assert!(
+            violations("crates/strobe-output/src/spout_receive.rs", &text).is_empty(),
+            "and in the Spout receiver's (D575)"
+        );
+        assert!(
+            !violations("crates/strobe-output/src/ndi_receive.rs", &text).is_empty(),
+            "NDI input needs no unsafe either"
         );
         assert!(
             !violations("crates/strobe-output/src/ndi.rs", &text).is_empty(),

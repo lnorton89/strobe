@@ -1,10 +1,11 @@
 // ============================================================================
 // Module:       strobe_gfx::live
-// Description:  A live picture source behind syn_Media, such as a webcam:
+// Description:  A live picture source behind syn_Media (a webcam, a Spout
+//               sender, an NDI source):
 //               the one-picture mailbox between a capture thread and the
 //               render thread, and the host's hook that opens a source by name.
 //
-// Dependencies: std::sync
+// Dependencies: std::sync; strobe_scene::live (how a source is named)
 // ============================================================================
 
 //! Live sources for `syn_Media` (backlog M-04, D528).
@@ -16,12 +17,12 @@
 //! render thread hands each buffer back with [`Mailbox::give_back`], so
 //! neither side allocates once both have one.
 //!
-//! A source is named in a media request as `camera:<name>`
-//! ([`strobe_scene::camera`]). The player does not know how to open one:
-//! the host installs [`LiveSources`] once at start ([`install`]), and a
-//! request for a camera asks it for that camera's mailbox. Without it (the
-//! bench, the tests, a build with no capture) a camera reads black and says
-//! so once.
+//! A source is named in a media request as `camera:<name>`, `spout:<name>`
+//! or `ndi:<name>` ([`strobe_scene::live`], D575). The player does not know
+//! how to open one: the host installs [`LiveSources`] once at start
+//! ([`install`]), and a request for a live source asks it for that source's
+//! mailbox. Without it (the bench, the tests, a build with no capture) a
+//! live source reads black and says so once.
 //!
 //! The mailbox also tells the capture side whether anyone still shows it:
 //! every player showing a camera holds a clone, and the capture keeps one.
@@ -31,9 +32,11 @@
 
 use std::sync::{Arc, Mutex, PoisonError, RwLock, Weak};
 use std::time::Instant;
+pub use strobe_scene::live::{Kind, Source};
 
-/// What `syn_MediaType` holds while a camera shows, as SSF documents for a
-/// webcam (Q22).
+/// What `syn_MediaType` holds while a live source shows, as SSF documents
+/// for a webcam (Q22). SSF has no value of its own for a shared texture, so
+/// a Spout sender or an NDI source reads 3 as well (D575).
 pub const MEDIA_TYPE_WEBCAM: f32 = 3.0;
 
 /// One live picture.
@@ -186,10 +189,11 @@ impl Mailbox {
 
 /// How a host opens a live source by name.
 pub trait LiveSources: Send + Sync {
-    /// The mailbox of the camera called `name`, starting its capture if
-    /// none is running. Must return at once: the camera opens in the
-    /// background, and a camera that is not there fails through the mailbox.
-    fn camera(&self, name: &str) -> Mailbox;
+    /// The mailbox of `source` (a camera, a Spout sender or an NDI source),
+    /// starting its capture if none is running. Must return at once: the
+    /// source opens in the background, and one that is not there fails
+    /// through the mailbox.
+    fn open(&self, source: Source<'_>) -> Mailbox;
 }
 
 static SOURCES: RwLock<Option<Arc<dyn LiveSources>>> = RwLock::new(None);
