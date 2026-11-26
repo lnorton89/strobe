@@ -219,12 +219,86 @@ proposes, and the ones `strobe-output` already enforces:
   appears by name, keeps its cadence for 30 minutes, survives the receiver
   closing and reopening, and the console shows one line for each of those.
 - A Spout receiver (OBS, or Resolume) on the same machine: the sender
-  appears, the picture matches the projector, blackout does not blacken it
-  while `master` does, and closing the receiver does not stop the show.
+  appears, the picture matches the projector, blackout and `master` both
+  blacken it (D573), and closing the receiver does not stop the show.
 - The runtime absent: both rows say what to install, and neither is
   attempted.
 - A 30-minute soak with an output on: flat memory, no runtime compiles, no
   frame time regression against the same show with it off.
+
+## What the tools people already use do (survey, 2026-11-26)
+
+Before taking the first cut further, it was compared with how established
+tools expose output sharing. The survey used each tool's documentation and
+forum threads. A "?" means the documentation did not say, not that the tool
+lacks the feature.
+
+| Tool | Where it lives | Name | Several senders | Size apart from the window | Format and alpha | NDI extras |
+|---|---|---|---|---|---|---|
+| Synesthesia | Settings: "Syphon/Spout Output" (NDI in Pro) | editable | one | "Constant Output Resolution": follow the scene, or fixed | ? | ? |
+| Resolume | Output menu; an Advanced Output screen per sender | fixed: app plus screen name | one per screen | composition size, or custom per screen | NDI 8 or 16 bit, YUV or YUVA | delay 0–100 ms |
+| TouchDesigner | Spout Out TOP, NDI Out TOP | editable | unlimited | full resolution controls | Spout up to 32-bit float; NDI alpha | fps cap, groups, audio, failover, `num_connected` |
+| MadMapper | "Publish to Spout/NDI" per output | ? | one per output | the output's size | alpha on video buffers | ? |
+| OBS (DistroAV, Spout2) | Tools menu; Spout filter per source | editable | via filters | canvas size | ? | groups |
+| vMix | Settings > Outputs | ? | four | SD, 720 or 1080 per output | alpha, straight or premultiplied | audio |
+| Millumin | Output panel | automatic | one per output | ? | with or without alpha | audio |
+
+Sources:
+
+- [Synesthesia FAQ](https://synesthesia.live/docs/faq/video.html)
+- [Resolume NDI](https://resolume.com/support/NDI_inputs_and_outputs)
+- [TouchDesigner NDI Out](https://docs.derivative.ca/NDI_Out_TOP)
+- [TouchDesigner Spout Out](https://docs.derivative.ca/Syphon_Spout_Out_TOP)
+- [MadMapper outputs](https://docs.madmapper.com/madmapper/6/6.-outputs)
+- [Millumin outputs](https://help.millumin.com/docs/display/outputs/)
+- [vMix NDI](https://www.vmix.com/help21/NDINetworkDeviceInterface1.html)
+- [NDI SDK licensing](https://docs.ndi.video/all/developing-with-ndi/sdk/licensing)
+- [NDI SDK performance](https://docs.ndi.video/all/developing-with-ndi/sdk/performance-and-implementation)
+
+What the NDI SDK itself asks for:
+
+- **Licence.**
+  - The About box must carry the trademark line, "NDI® is a registered
+    trademark of Vizrt NDI AB".
+  - Wherever NDI is chosen, link to ndi.video.
+  - Never redistribute NDI Tools; link to ndi.video/tools instead.
+- **Performance.**
+  - Send UYVY.
+  - Convert on the GPU before the readback.
+  - Send asynchronously.
+- **Receivers.** `NDIlib_send_get_no_connections` lets a sender skip the
+  work while nobody is connected. TouchDesigner shows the count.
+
+What it found for Spout:
+
+- TouchDesigner's notes report GPU sharing failing on Intel. SpoutSettings'
+  CPU-sharing mode is the way out, which matters on HD 4000 laptops.
+- No surveyed tool shows a Spout receiver count, and Spout has no API for
+  one.
+
+**What Strobe took (D573):**
+
+- Saved settings.
+- Editable names.
+- The final picture, blacked out with the show.
+- The picture's own size or a fixed one.
+- NDI as UYVY packed on the GPU and sent async.
+- No readback while NDI has no receiver.
+- An NDI frame-rate cap and groups.
+- A status line with receivers and rate.
+- The licence lines and links.
+- The Intel/CPU-sharing hint.
+
+**Left for later, in rough order of demand:**
+
+1. Several senders: a clean feed before the post stage and blackout beside
+   the final one (Resolume, MadMapper, OBS; issue #116).
+2. Spout and NDI input as a media source (its own item, below).
+3. NDI audio.
+4. Alpha, once a scene can produce it (D248).
+5. 16-bit output.
+6. NDI delay, failover and tally.
+7. OSC control of sharing.
 
 ## What issue #116 asks for, and where each part lands
 

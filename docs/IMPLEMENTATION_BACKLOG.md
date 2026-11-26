@@ -366,9 +366,37 @@
 - **Acceptance:** deterministic tests for no audio, low confidence, track boundary and manual override; no double transition with a cue transition already in progress.
 
 ### M-06 NDI and Spout output
-- **Status:** **Senders built, wired to the CLI and Settings, and both policy-tested (D570, D571), 2026-11-26; no receiver has shown the picture yet.** [research/m06-ndi-spout.md](research/m06-ndi-spout.md) covers the SDK and runtime story, licensing and its distribution duties, pixel formats, the numbers, the tap after the post stage, the failure policy and the acceptance test. `strobe-output` holds `Frame` with BGRA and UYVY 4:2:2 packing (BT.709 limited range, odd widths, padded strides), the `Sink` seam and `Output`'s policy (one line per outage, sink closed and dropped, frames dropped not queued, reopen only when down), `SharedTexture`, and two senders. **Spout** (Windows) sends the renderer's texture with nothing read back: it loads the installed `SpoutLibrary.dll` through `libloading` and calls `GetSpout`, `?CreateSender@Spout@@QAE_NPBDIIK@Z`, `?SendTexture@Spout@@QAE_NIIII_NI@Z` and `?ReleaseSender@Spout@@QAEXK@Z` (D571), each a private safe leaf with one `unsafe` block, the file named in `strobe-conventions`'s boundary. **NDI** is behind the `ndi` feature (`grafton-ndi` 3.0, no SDK at build time, the NDI 6 runtime loaded at run time), sends `PixelFormat::Rgba` with `clock_video(false)`, and takes the picture from the existing synchronous readback, whose cost M-06 still has to measure. `strobe-gfx` lends the texture (`TextureShare`, `output_share` on the post stage, the compositor and the player); the app taps it after the post stage (`strobe_app::output`), the CLI takes `--spout NAME` and `--ndi NAME`, and Settings > Output has a Sharing group with one switch each and one note. Verified here: `cargo test -p strobe-output` (21), the conventions boundary (60), clippy `-D warnings` on the three crates, and a real launch with `--spout`, which reported the DLL it found and why it refused it. **Spout verified sharing, 2026-11-26.** The 2017 `SpoutLibrary.dll` inside Synesthesia is 32-bit and the 64-bit loader refuses it, so the sender was moved to the current library's interface: Spout 2.007.018 from the `Spout-SDK-binaries` release is 64-bit and exports only `GetSpout`, handing out a vtable object, so the three calls are taken from that vtable (D572). With that library beside the executable, `strobe --spout StrobeProbe` logged `Spout reports sender `StrobeProbe` live at 960x540` and `Spout is carrying the picture at 75.0 fps`, and a separate process built against the vendor's own header listed `StrobeProbe info=1 960x540 fmt=87` (BGRA) with a live shared-texture handle. **Still not verified:** no NDI 6 runtime of either width is installed, so NDI has never run; no receiver application (OBS, Resolume, Studio Monitor) has been attached, so the picture has not been seen on the other end; and the readback's frame cost is unmeasured. **Left:** the full-size readback ring, `Alpha Channel` in the post stage (D248 unblocks here), and the NDI link the licence asks for in the UI.
-- **Work:** build the two senders and the tap, wire the app, then measure. The machine evidence and the two hard blockers are in the research page: no x64 NDI runtime is installed here (Synesthesia ships only a 32-bit one), so NDI needs NDI Tools before it can be verified, and a Spout receiver (OBS or Resolume) is needed to see the picture arrive.
-- **Acceptance:** measured prototype with frame-time impact and a clear optional-dependency story before committing to a full implementation: `strobe-bench` with the output off and on at 1280x720 and 1920x1080 on the T480, a 30-minute NDI stream over a second machine and a Spout receiver on the same one, each outage said once, and a flat-memory soak.
+- **Status:** **Built to the surveyed tools' feature set and verified publishing through Spout (D570, D571, D572, D573), 2026-11-26. No receiver application has shown the picture yet, and NDI has not sent a frame.**
+  - [research/m06-ndi-spout.md](research/m06-ndi-spout.md) covers the SDK and runtime story, licensing, pixel formats and costs. It also holds a survey of how Synesthesia, Resolume, TouchDesigner, MadMapper, OBS, vMix and Millumin expose sharing.
+  - **Built:**
+    - Settings > Output > Sharing, saved: Spout and NDI on or off, editable names, NDI groups and a frame-rate cap, and a shared size (the picture's own, or 720p to 4K). The same options exist as one-run flags: `--spout`, `--ndi`, `--ndi-groups`, `--ndi-fps` and `--share-size`.
+    - The final picture is shared, and blackout blackens it.
+    - `strobe_gfx::share::ShareStage` scales the picture or blacks it out. For NDI it packs UYVY on the GPU and reads it back through a fenced ring. NDI sends asynchronously, and does nothing while it has no receiver.
+    - Spout shares the picture's own texture when it can. It creates the sender on the first frame, uses `UpdateSender` on a resize, and calls `Release` on drop.
+    - A status line shows names, size, NDI receivers and rate. Each sender's failure is said once on its own row.
+    - NDI's licence lines and links are beside the choice and in About.
+  - **Verified:**
+    - The GPU packing matches the BT.709 reference byte for byte in both dialects on Mesa (`render.rs`).
+    - `--spout StrobeCheck --share-size 1280x720` is listed at 1280x720 by an independent receiver-side probe on LIGHTNING, and is gone from the list after a clean exit.
+    - `--ndi` without a runtime gives one line with the NDI Tools link, and the show runs on.
+  - **Still not verified:**
+    - A receiver application (OBS, Resolume, Studio Monitor) showing the picture.
+    - NDI on a machine with its runtime.
+    - The frame cost on the T480.
+  - **Left, in demand order:**
+    - A second clean feed beside the final one (issue #116 asks for several named senders).
+    - Spout and NDI input as a media source (M-04's family, its own item).
+    - NDI audio.
+    - Alpha (D248).
+    - 16-bit output.
+    - NDI delay, failover and tally.
+    - OSC control of sharing.
+- **Work:** measure, then attach receivers. The two hard blockers are in the research page: no x64 NDI runtime is installed here (Synesthesia ships only a 32-bit one), so NDI needs NDI Tools before it can be verified, and a Spout receiver (OBS or Resolume) is needed to see the picture arrive.
+- **Acceptance:**
+  - `strobe-bench` with the output off and on, at 1280x720 and 1920x1080, on the T480.
+  - A 30-minute NDI stream to a second machine, and a Spout receiver on the same machine.
+  - Each outage said once.
+  - A flat-memory soak.
 
 ## Epic L — LAN remote and PWA
 

@@ -70,6 +70,65 @@ impl Frame {
     }
 }
 
+impl Frame {
+    /// The frame lent as [`Pixels`], RGBA.
+    pub fn pixels(&self) -> Pixels<'_> {
+        Pixels {
+            width: self.width,
+            height: self.height,
+            layout: Layout::Rgba,
+            data: &self.rgba,
+        }
+    }
+}
+
+/// How a picture's bytes are laid out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Layout {
+    /// Four bytes a pixel: red, green, blue, alpha.
+    Rgba,
+    /// UYVY 4:2:2, BT.709 limited range: four bytes a pixel pair (U, Y0, V,
+    /// Y1), the layout NDI prefers. The width is even.
+    Uyvy,
+}
+
+impl Layout {
+    /// Bytes one row of `width` pixels takes.
+    pub fn row_bytes(self, width: u32) -> usize {
+        match self {
+            Self::Rgba => (width as usize) * 4,
+            Self::Uyvy => (width as usize).div_ceil(2) * 4,
+        }
+    }
+}
+
+/// A picture lent to a sender for the length of one call: the bytes stay the
+/// host's, rows top first. A sender that keeps a frame past the call copies
+/// it (NDI's asynchronous send copies into buffers of its own).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Pixels<'a> {
+    /// Width in pixels.
+    pub width: u32,
+    /// Height in pixels.
+    pub height: u32,
+    /// How [`Self::data`] is laid out.
+    pub layout: Layout,
+    /// The rows, top first, with no padding between them.
+    pub data: &'a [u8],
+}
+
+impl Pixels<'_> {
+    /// Whether the size, the layout and the bytes agree.
+    pub fn is_whole(&self) -> bool {
+        let expected = self
+            .layout
+            .row_bytes(self.width)
+            .checked_mul(self.height as usize);
+        let even = self.layout != Layout::Uyvy || self.width.is_multiple_of(2);
+        even && expected.is_some_and(|bytes| self.data.len() == bytes)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -108,5 +167,23 @@ mod tests {
             rgba: Vec::new(),
         };
         assert!(!huge.is_whole(), "an impossible size is not whole");
+    }
+
+    #[test]
+    fn uyvy_pixels_take_four_bytes_a_pair_and_an_even_width() {
+        let data = [0_u8; 16];
+        let pixels = |width, layout| Pixels {
+            width,
+            height: 2,
+            layout,
+            data: &data,
+        };
+        assert!(pixels(4, Layout::Uyvy).is_whole(), "4x2 UYVY is 16 bytes");
+        assert!(pixels(2, Layout::Rgba).is_whole(), "2x2 RGBA is 16 bytes");
+        assert!(
+            !pixels(3, Layout::Uyvy).is_whole(),
+            "an odd UYVY width has no whole last pair"
+        );
+        assert_eq!(Layout::Uyvy.row_bytes(1920), 3840, "half of RGBA's bytes");
     }
 }

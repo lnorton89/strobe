@@ -200,7 +200,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-gfx
 
-45 decision(s).
+46 decision(s).
 
 - [D40](decisions/D40.md): our own `log` backend in `strobe-diag`, not tracing or env_logger
 - [D41](decisions/D41.md): unsafe is allowed in exactly one `strobe-diag` file
@@ -247,6 +247,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D553](decisions/D553.md): Shadertoy cube-map inputs become scene cube maps, the keyboard is 256x3 with every key up, and the Needs-work bin is closed
 - [D558](decisions/D558.md): the sandbox generates controls a step per animation frame, on the app's own engine and settings
 - [D559](decisions/D559.md): /play rebuilds its engine when the WebGL context comes back
+- [D573](decisions/D573.md): Sharing works the way VJ tools do: saved, sized, blacked out, UYVY on the GPU, idle with no receivers
 
 ## strobe-io
 
@@ -261,9 +262,10 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-output
 
-1 decision(s).
+2 decision(s).
 
 - [D570](decisions/D570.md): NDI and Spout output leave through one seam, NDI over a readback and Spout over the texture
+- [D573](decisions/D573.md): Sharing works the way VJ tools do: saved, sized, blacked out, UYVY on the GPU, idle with no receivers
 
 ## strobe-playlist
 

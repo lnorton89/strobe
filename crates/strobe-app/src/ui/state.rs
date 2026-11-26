@@ -242,34 +242,56 @@ impl Default for SynesthesiaState {
 /// How many recent playlists are kept (D481).
 pub const RECENT_PLAYLISTS: usize = 5;
 
-/// Sharing the output through Spout and NDI (D570, D571).
+/// Sharing the output through Spout and NDI (D570, D573).
 ///
-/// Two switches and the names a receiver lists. Not saved: a shared output
-/// is a property of the show in front of you, and `--spout`/`--ndi` are how a
-/// launcher asks for one every time.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// `saved` is what Settings chose and what is written to the preferences;
+/// `live` is what this run shares, which is `saved` with `--spout`, `--ndi`
+/// and friends laid over it, so a launcher's flags never overwrite the
+/// operator's choice. A change in Settings sets both.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SharingUi {
-    /// Share through Spout.
-    pub spout: bool,
-    /// The name Spout receivers list.
-    pub spout_name: String,
-    /// Share over NDI.
-    pub ndi: bool,
-    /// The name NDI receivers list.
-    pub ndi_name: String,
-    /// What a sender said when it would not open, or stopped.
-    pub note: String,
+    /// What Settings chose: saved.
+    pub saved: crate::prefs::SharingPref,
+    /// What this run shares: `saved` and the command line.
+    pub live: crate::prefs::SharingPref,
+    /// The Spout name as it is being typed, until Enter or a click away.
+    pub spout_draft: String,
+    /// The NDI name as it is being typed.
+    pub ndi_draft: String,
+    /// The NDI groups as they are being typed.
+    pub groups_draft: String,
+    /// What Spout said when it would not open, or stopped. Not saved.
+    pub spout_note: String,
+    /// What NDI said when it would not open, or stopped. Not saved.
+    pub ndi_note: String,
+    /// One line on what is being shared, refreshed by the app. Not saved.
+    pub status: String,
 }
 
-impl Default for SharingUi {
-    fn default() -> Self {
-        Self {
-            spout: false,
-            spout_name: "Strobe".to_string(),
-            ndi: false,
-            ndi_name: "Strobe".to_string(),
-            note: String::new(),
-        }
+impl SharingUi {
+    /// The state for `saved`, with the text fields showing it.
+    pub fn from_saved(saved: crate::prefs::SharingPref) -> Self {
+        let mut state = Self {
+            live: saved.clone(),
+            saved,
+            ..Self::default()
+        };
+        state.reset_drafts();
+        state
+    }
+
+    /// Settings chose `pref`: it is saved and shared from now on.
+    pub fn choose(&mut self, pref: crate::prefs::SharingPref) {
+        self.saved = pref.clone();
+        self.live = pref;
+        self.reset_drafts();
+    }
+
+    /// The text fields show what is live again.
+    pub fn reset_drafts(&mut self) {
+        self.spout_draft.clone_from(&self.live.spout_name);
+        self.ndi_draft.clone_from(&self.live.ndi_name);
+        self.groups_draft.clone_from(&self.live.ndi_groups);
     }
 }
 
@@ -394,7 +416,7 @@ impl UiState {
         crate::motion::set_reduced(prefs.reduced_motion || env_reduced);
         let mut state = Self {
             panes: prefs.to_panes(),
-            sharing: SharingUi::default(),
+            sharing: SharingUi::from_saved(prefs.sharing.clone()),
             browser: BrowserState {
                 query: prefs.browser.query.clone(),
                 filter: HealthFilter::from_key(&prefs.browser.filter),
@@ -488,6 +510,7 @@ impl UiState {
         prefs.prerender = crate::prefs::PrerenderPref {
             enabled: self.prerender.enabled,
         };
+        prefs.sharing.clone_from(&self.sharing.saved);
         prefs.remote.clone_from(&self.remote);
         prefs
     }
@@ -645,6 +668,7 @@ impl UiState {
         self.scene_folders.folders.hash(&mut hasher);
         self.synesthesia.show.hash(&mut hasher);
         self.prerender.enabled.hash(&mut hasher);
+        self.sharing.saved.hash(&mut hasher);
         self.remote.trust_file.hash(&mut hasher);
         self.remote.use_trust.hash(&mut hasher);
         self.remote.controller_id.hash(&mut hasher);

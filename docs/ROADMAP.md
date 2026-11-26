@@ -43,28 +43,30 @@ which backend proved a claim.
 
 ### In flight
 
-- **NDI and Spout output: built and wired (2026-11-26, D570, D571).**
-  `docs/research/m06-ndi-spout.md` replaces M-06's "deferred research" with
-  the SDK story (neither output needs a build-time SDK: `grafton-ndi` 3.0
-  loads an NDI 6 runtime, Spout's library is found by the loader), NDI's
-  licensing duties (a link to ndi.video beside every place NDI is chosen,
-  in the docs and on the site, and no redistribution of its tools), the
-  numbers (UYVY at 1080p60 is 249 MB/s against BGRA's 498, and Spout copies
-  nothing through the CPU), the tap after the post stage, and the failure
-  policy. `strobe-output` holds the tested core: `Frame`, BGRA and UYVY
-  4:2:2 packing, `Sink`/`Output` with one line per outage and frames dropped
-  rather than queued, and runtime probes. The two senders are in: Spout
-  shares the post stage's texture with nothing read back, calling the
-  installed library's mangled ABI (D571), and NDI sits behind the `ndi`
-  feature, sending RGBA from the synchronous readback. `strobe-gfx` lends
-  the texture, and the app taps it after the post stage from
-  `strobe_app::output`, with `--spout`/`--ndi` and Settings > Output.
-  **Left:** the full-size readback ring, `Alpha Channel`, and the
-  measurement (M-06). Spout was verified publishing on 2026-11-26: with the
-  64-bit 2.007.018 library beside the executable, the sender is listed at
-  960x540 BGRA and Spout measures 75 fps arriving (D572). Still open: NDI has
-  no runtime installed on this machine to run against, and no receiver
-  application has been attached to see the picture on the other end.
+- **NDI and Spout output: built to the surveyed tools' feature set
+  (2026-11-26, D570 to D573).** M-06's research page now includes a survey
+  of how Synesthesia, Resolume, TouchDesigner, MadMapper, OBS, vMix and
+  Millumin expose sharing, and Strobe matches their common ground:
+  - Settings > Output > Sharing is saved, with editable names, NDI groups, a
+    frame-rate cap and a fixed or follow-the-picture size, plus one-run
+    flags.
+  - The final picture is shared, blacked out with the show.
+  - NDI is UYVY packed on the GPU (`strobe_gfx::share`), read back through a
+    fenced ring and sent asynchronously, and nothing is done while no
+    receiver is connected.
+  - Spout is zero-copy at the picture's size, and its object is now released
+    on drop.
+  - A status line shows receivers and rate.
+  - NDI's licence lines are in place.
+
+  The review also fixed the first cut's faults: a leaked Spout object,
+  per-frame allocations and a synchronous readback, both senders rebuilt
+  when either toggled, broken UI strings, and a manifest that broke the
+  Linux build. Verified on LIGHTNING: Spout publishes at a fixed 1280x720
+  and is released on exit, and the UYVY packing matches its reference on
+  Mesa. **Left:** a receiver application on screen, NDI with a runtime, the
+  T480's frame cost, then a second clean feed and Spout or NDI input
+  (M-06).
 
 - **The library's scenes are prerendered, and launch opens on the Library
   (2026-11-03, D542, D543):** at launch and on a rescan every scene is

@@ -218,23 +218,43 @@ Scenes react to sound through the default **recording** device.
   is under *Output (meta)* in Controls (the page or the panel's tab). It
   carries over from scene to scene.
 - **Sharing the picture with another program.** Settings > Output > Sharing
-  turns on **Spout** (Windows: Resolume, OBS, TouchDesigner, Notch and
-  anything else that reads Spout) or **NDI** (the network, for another
-  computer), each with its own name a receiver lists. The command line does
-  the same for a launcher: `strobe --spout "Strobe"`, `strobe --ndi
-  "Strobe"`. What is shared is the finished picture at its own size, after
-  the output's look and mirrors; Blackout does not stop it, so a receiver
-  keeps its feed while your screens go dark.
+  turns on **Spout** (Windows: Resolume, OBS, TouchDesigner, MadMapper,
+  Notch and anything else that reads Spout) or **NDI** (the network: OBS,
+  vMix, Resolume or NDI Studio Monitor on another computer). Each has a name,
+  which is what a receiver lists; type a new one and press Enter. The choice
+  is saved.
+- **What goes out** is the finished picture, after the output's look and
+  mirrors. **Blackout blackens it too**, so a mixer fed from Strobe goes dark
+  with your projector. **Shared size** is the picture's own, which follows
+  the render scale, or a fixed size (720p to 4K) that a mixer input can rely
+  on whatever the scene renders at.
+- **NDI options.**
+  - **Frame rate** caps how many frames a second go out (25 to 60, or every
+    frame); a lower rate eases a busy network.
+  - **Groups** limit which receivers see the stream.
+  - While no receiver is connected, Strobe does no NDI work at all.
+  - The row under Spout says what is going out: the name, the size, how many
+    NDI receivers are connected and the rate.
+- **From the command line**, for a launcher, for this run only (Settings
+  stays as you left it):
+
+  ```text
+  strobe --spout "Strobe" --ndi "Strobe" --ndi-fps 30 --ndi-groups "Stage" --share-size 1920x1080
+  ```
+
+  `--share-size picture` follows the picture.
 - **Spout needs its library.** Put a **64-bit** `SpoutLibrary.dll` beside
-  `strobe.exe` (or anywhere on the `PATH`). The one to use is the
-  `Spout-SDK-binaries` download from the Spout 2.007 release at
-  [github.com/leadedge/Spout2](https://github.com/leadedge/Spout2/releases)
-  — its `MT/bin` folder needs no Visual C++ runtime. A 32-bit copy (some
-  applications ship one) cannot be loaded by the 64-bit build, and
-  Settings says so if it finds one.
-- **NDI needs its runtime**, installed from [ndi.video](https://ndi.video/)
-  (NDI Tools); Strobe loads it when it starts and says what is missing
-  otherwise.
+  `strobe.exe` (or anywhere on the `PATH`). Use the `Spout-SDK-binaries`
+  download from the Spout 2.007 release at
+  [github.com/leadedge/Spout2](https://github.com/leadedge/Spout2/releases);
+  its `MT/bin` folder needs no Visual C++ runtime. A 32-bit copy (some
+  applications ship one) cannot be loaded by the 64-bit build, and Settings
+  says so. If a receiver lists the sender but shows black, often on an Intel
+  GPU, open SpoutSettings and turn on CPU sharing.
+- **NDI needs its runtime**, which NDI Tools installs, from
+  [ndi.video/tools](https://ndi.video/tools/). Strobe loads it when NDI is
+  turned on, and says so if it is missing. NDI® is a registered trademark of
+  Vizrt NDI AB.
 
 ## Media behind a scene
 

@@ -19,7 +19,7 @@
 //! Three pieces, deliberately apart:
 //!
 //! - [`Frame`] is one picture, RGBA8 top row first, in a buffer the host
-//!   reuses. Everything a sender sees crosses in one of these.
+//!   reuses; [`Pixels`] lends one, RGBA or UYVY, for the length of a send.
 //! - [`pixel`] packs it for a sender that wants bytes: BGRA for NDI's
 //!   lossless path and for anything that takes a DIB, UYVY 4:2:2 (BT.709,
 //!   limited range) for NDI's default, at half the bandwidth. Spout needs
@@ -36,10 +36,11 @@
 //! found by the loader, so this crate compiles everywhere and does nothing
 //! until asked.
 //!
-//! The backends themselves (`grafton-ndi` for NDI, Spout's `SpoutLibrary`
-//! for the texture path) land next, behind features, with the app's wiring;
-//! the seam, the formats and the failure policy here are what they plug
-//! into.
+//! The two senders are [`SpoutSender`] (Windows, the GL texture through the
+//! Spout library's vtable) and [`NdiSender`] (the `ndi` feature, UYVY or
+//! RGBA submitted asynchronously). The GPU side, which scales the picture
+//! and packs it to UYVY before it is read back, is `strobe_gfx::share`; the
+//! app joins the two (D573).
 
 pub mod frame;
 pub mod ndi;
@@ -49,8 +50,8 @@ pub mod sink;
 pub mod spout;
 pub mod texture;
 
-pub use frame::Frame;
-pub use ndi::NdiSender;
+pub use frame::{Frame, Layout, Pixels};
+pub use ndi::{NdiOptions, NdiSender};
 pub use sink::{Outcome, Output, Problem, Sink, Status};
 pub use spout::SpoutSender;
 pub use texture::SharedTexture;

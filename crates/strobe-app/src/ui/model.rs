@@ -206,10 +206,9 @@ pub enum Action {
     NewSong,
     /// Turn adaptive resolution on or off.
     SetAdaptive(bool),
-    /// Share the output through Spout, or stop (D570).
-    SetSpout(bool),
-    /// Share the output over NDI, or stop (D570).
-    SetNdi(bool),
+    /// Share the output as this says, through Spout and NDI, and save it
+    /// (D573).
+    SetSharing(crate::prefs::SharingPref),
     /// Prerender the library's scenes, or stop and let them go (D542).
     /// Applied at once and saved.
     SetPrerender(bool),
@@ -733,8 +732,6 @@ pub struct Model<'a> {
     pub output_monitor: Option<usize>,
     /// Whether the output window is shown.
     pub output_visible: bool,
-    /// The output being shared, through Spout or NDI (D570).
-    pub sharing: super::state::SharingUi,
     /// Whether the output window is fullscreen.
     pub fullscreen: bool,
     /// Whether the control window is maximised.

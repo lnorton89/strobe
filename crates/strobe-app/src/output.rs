@@ -1,155 +1,446 @@
 // ============================================================================
 // Module:       strobe_app::output
 // Description:  Sharing the finished picture: the Spout and NDI senders the
-//               operator turned on, the frame each is given, and what to say
-//               when one stops.
+//               operator turned on, the GPU stage that sizes, blacks out and
+//               packs the picture for them, and the line Settings shows.
 //
 // Dependencies: strobe-output (the senders, Output and its policy),
-//               strobe-gfx (the texture description); log
+//               strobe-gfx (the share stage, the texture); crate::prefs; log
 // ============================================================================
 
-//! Sharing the picture (D570, D571; backlog M-06).
+//! Sharing the picture (D570, D571, D573; backlog M-06).
 //!
 //! Strobe draws one finished picture a frame, after the output post stage and
 //! at the picture's size rather than a window's. This module hands that
-//! picture to whichever senders the operator turned on:
+//! picture to whichever senders the operator turned on, the way the VJ tools
+//! people already use do it (research in `docs/research/m06-ndi-spout.md`):
 //!
-//! - **Spout** takes the renderer's texture itself, on the frame thread with
-//!   the context current, which is the whole point of it: nothing is read
-//!   back (D571).
-//! - **NDI** takes pixels, so the picture is read back and sent as a frame.
-//!   The read is synchronous, which is the first cut's cost and the number
-//!   M-06's acceptance test measures; a readback ring is the next step.
-//!
-//! Both follow `master`, colour and mirrors, because they are given the post
-//! stage's output, and neither follows blackout, which is a present-time
-//! clear of the shown window only (D135, D570).
+//! - **What goes out** is the show's final picture: after the post stage's
+//!   master, colour and mirrors, and black while the show is blacked out, so
+//!   a receiver on another screen goes dark with the projector.
+//! - **Its size** is the picture's own, or a fixed size chosen in Settings
+//!   (`--share-size`), so a 720p render can feed a 1080p mixer input.
+//! - **Spout** takes the texture itself, on the render thread with the
+//!   context current: nothing is read back (D571).
+//! - **NDI** takes UYVY packed on the GPU and read back through a fenced ring
+//!   (`strobe_gfx::share`), submitted asynchronously. While NDI reports no
+//!   receiver, nothing is packed or read back at all; an optional cap limits
+//!   how many frames a second go out.
 //!
 //! A sender that fails is said once and dropped, and frames go nowhere until
-//! the operator turns it on again or the show reopens it: a shared output is
-//! never allowed to stop the show.
+//! the operator changes the setting: a shared output never stops the show.
+//!
+//! The GPU side ([`GpuShare`]: the stage and the Spout sender, both bound to
+//! the GL context) lives in the app's context stack and goes with it; a
+//! rebuilt context gets a fresh one, and [`Sharing::context_changed`] makes
+//! the Spout sender open again on it.
 
-use crate::ui::state::SharingUi;
-use strobe_gfx::gl::TextureShare;
-use strobe_output::{Frame, NdiSender, Output, SharedTexture, SpoutSender, Status};
+use crate::prefs::SharingPref;
+use std::time::{Duration, Instant};
+use strobe_gfx::caps::Caps;
+use strobe_gfx::gl::{Gl, Texture};
+use strobe_gfx::share::{ShareStage, Want};
+use strobe_output::{
+    Layout, NdiOptions, NdiSender, Output, Pixels, SharedTexture, SpoutSender, Status,
+};
 
-/// The picture a frame can offer a sender.
-pub(crate) struct Picture<'a> {
-    /// The final texture, for a sender that shares GPU memory.
-    pub(crate) texture: Option<TextureShare>,
-    /// The final picture as pixels, top row first, read back only when a
-    /// sender needs them.
-    pub(crate) frame: Option<&'a Frame>,
-}
+/// How often NDI's receiver count is asked, and the status line redrawn.
+const POLL: Duration = Duration::from_millis(500);
 
-/// The senders this run has open.
+/// The share pieces that belong to one GL context: the stage and the Spout
+/// sender, whose interop is tied to the context it was made on.
 #[derive(Default)]
-pub(crate) struct Sharing {
+pub(crate) struct GpuShare {
+    stage: Option<ShareStage>,
+    /// The stage would not build; said once, then Spout goes direct.
+    stage_failed: bool,
     spout: Option<Output>,
-    ndi: Option<Output>,
-    /// The last thing said about a sender, for the Settings row.
-    note: String,
-    /// What was asked for last, so a rebuild happens only on a change.
-    asked: Option<Asked>,
 }
 
-/// What the operator asked for: two names, each off when absent.
+impl GpuShare {
+    /// Lets go of everything after the context was lost: the stage's GL
+    /// objects are skipped by their owners on a lost context, and the Spout
+    /// sender is leaked rather than released, because releasing it calls
+    /// into a context that no longer exists.
+    pub(crate) fn abandon(self) {
+        let Self { stage, spout, .. } = self;
+        drop(stage);
+        if let Some(spout) = spout {
+            std::mem::forget(spout);
+        }
+    }
+}
+
+/// What the operator asked of NDI, compared without allocating per frame.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Asked {
-    spout: Option<String>,
-    ndi: Option<String>,
+struct NdiAsk {
+    name: String,
+    groups: String,
+    fps: u32,
+}
+
+/// The senders' state that outlives a context, and what Settings shows.
+pub(crate) struct Sharing {
+    ndi: Option<Output>,
+    /// The Spout name last applied (`Some(None)` for off); `None` until the
+    /// first apply, or after a context change.
+    asked_spout: Option<Option<String>>,
+    /// The NDI options last applied, as for Spout.
+    asked_ndi: Option<Option<NdiAsk>>,
+    size: Option<[i32; 2]>,
+    /// The least time between two NDI frames, from the cap.
+    interval: Option<Duration>,
+    spout_note: String,
+    ndi_note: String,
+    stage_note: String,
+    /// When NDI last packed a frame, for the cap.
+    last_pack: Option<Instant>,
+    receivers: Option<u32>,
+    polled: Option<Instant>,
+    /// NDI frames sent since `counted_from`, for the measured rate.
+    counted: u32,
+    counted_from: Option<Instant>,
+    ndi_fps: f32,
+    /// The Spout picture's size, for the status line.
+    spout_size: Option<[u32; 2]>,
+    status: String,
+    /// What went wrong with Spout, and with NDI or the stage, for each row.
+    notes: [String; 2],
 }
 
 impl Sharing {
-    /// A run with nothing shared, which is how every run starts unless a
-    /// flag or a saved setting names a sender.
+    /// A run with nothing shared yet.
     pub(crate) fn new() -> Self {
-        Self::default()
-    }
-
-    /// The names this run is asked to share under.
-    pub(crate) fn names(&self) -> (Option<&str>, Option<&str>) {
-        let spout = self.spout.as_ref().map(Output::name);
-        let ndi = self.ndi.as_ref().map(Output::name);
-        (spout, ndi)
-    }
-
-    /// What to say about the senders: empty while they are fine.
-    pub(crate) fn note(&self) -> &str {
-        &self.note
-    }
-
-    /// Whether a sender failed and has not been reopened: the Settings row
-    /// offers to try again.
-    pub(crate) fn faulted(&self) -> bool {
-        [&self.spout, &self.ndi]
-            .into_iter()
-            .flatten()
-            .any(|output| matches!(output.status(), Status::Down))
-    }
-
-    /// Applies `ui`'s two choices: opens a sender that was turned on, closes
-    /// one that was turned off, and does nothing when neither changed.
-    ///
-    /// Opening is where a missing runtime is reported, so this is called
-    /// once per change and at launch, never per frame.
-    pub(crate) fn apply(&mut self, ui: &SharingUi) {
-        let asked = Asked {
-            spout: ui.spout.then(|| ui.spout_name.clone()),
-            ndi: ui.ndi.then(|| ui.ndi_name.clone()),
-        };
-        if self.asked.as_ref() == Some(&asked) {
-            return;
+        Self {
+            ndi: None,
+            asked_spout: None,
+            asked_ndi: None,
+            size: None,
+            interval: None,
+            spout_note: String::new(),
+            ndi_note: String::new(),
+            stage_note: String::new(),
+            last_pack: None,
+            receivers: None,
+            polled: None,
+            counted: 0,
+            counted_from: None,
+            ndi_fps: 0.0,
+            spout_size: None,
+            status: String::new(),
+            notes: [String::new(), String::new()],
         }
-        self.asked = Some(asked.clone());
-        self.note.clear();
-        self.spout = open_spout(asked.spout.as_deref(), &mut self.note);
-        self.ndi = open_ndi(asked.ndi.as_deref(), &mut self.note);
     }
 
-    /// Hands this frame's picture to every open sender.
-    pub(crate) fn show(&mut self, picture: &Picture<'_>) {
-        if let (Some(output), Some(texture)) = (self.spout.as_mut(), picture.texture) {
-            let shared = SharedTexture::new(
-                texture.id,
-                texture.width.max(0) as u32,
-                texture.height.max(0) as u32,
-            );
-            output.show_texture(shared);
-        }
-        if let (Some(output), Some(frame)) = (self.ndi.as_mut(), picture.frame) {
-            output.show(frame);
-        }
-        self.report();
+    /// What went wrong with Spout, and with NDI, each for its own Settings
+    /// row: empty while all is well.
+    pub(crate) fn notes(&self) -> [&str; 2] {
+        [&self.notes[0], &self.notes[1]]
     }
 
-    /// Says what a stopped sender stopped for, once per outage.
-    fn report(&mut self) {
-        if !self.note.is_empty() {
-            return;
+    /// One line on what is being shared, for the Settings row.
+    pub(crate) fn status(&self) -> &str {
+        &self.status
+    }
+
+    /// The context was rebuilt: the Spout sender went with the old one, so
+    /// the next apply opens it again on the new.
+    pub(crate) fn context_changed(&mut self) {
+        self.asked_spout = None;
+    }
+
+    /// Applies `live`: opens a sender that was turned on or renamed, closes
+    /// one turned off, and does nothing (and allocates nothing) when neither
+    /// changed. Opening is where a missing runtime is reported.
+    pub(crate) fn apply(&mut self, live: &SharingPref, gpu: &mut GpuShare) -> bool {
+        let mut changed = false;
+        let spout_wanted = live.spout.then_some(live.spout_name.as_str());
+        let spout_same = self
+            .asked_spout
+            .as_ref()
+            .is_some_and(|asked| asked.as_deref() == spout_wanted);
+        if !spout_same {
+            gpu.spout = None;
+            self.spout_note.clear();
+            self.spout_size = None;
+            gpu.spout = spout_wanted.and_then(|name| open_spout(name, &mut self.spout_note));
+            self.asked_spout = Some(spout_wanted.map(str::to_owned));
+            changed = true;
         }
-        let stopped = [&self.spout, &self.ndi]
-            .into_iter()
-            .flatten()
-            .find(|output| matches!(output.status(), Status::Down))
-            .and_then(|output| {
-                output
-                    .reason()
-                    .map(|reason| (output.name().to_owned(), reason.to_owned()))
+        let ndi_same = self.asked_ndi.as_ref().is_some_and(|asked| match asked {
+            None => !live.ndi,
+            Some(ask) => {
+                live.ndi
+                    && ask.name == live.ndi_name
+                    && ask.groups == live.ndi_groups
+                    && ask.fps == live.ndi_fps
+            }
+        });
+        if !ndi_same {
+            // The old sender goes first: two of the same name fight.
+            self.ndi = None;
+            self.ndi_note.clear();
+            self.receivers = None;
+            self.polled = None;
+            self.counted = 0;
+            self.counted_from = None;
+            self.ndi_fps = 0.0;
+            let ask = live.ndi.then(|| NdiAsk {
+                name: live.ndi_name.clone(),
+                groups: live.ndi_groups.clone(),
+                fps: live.ndi_fps,
             });
-        if let Some((name, reason)) = stopped {
-            self.note = format!(
-                "Sharing `{name}` stopped: {reason}. Turn it off and on again, or reopen it."
-            );
-            log::warn!("{}", self.note);
+            self.ndi = ask
+                .as_ref()
+                .and_then(|ask| open_ndi(ask, &mut self.ndi_note));
+            self.asked_ndi = Some(ask);
+            changed = true;
         }
+        let size = live.size.map(|[w, h]| {
+            [
+                i32::try_from(w).unwrap_or(i32::MAX),
+                i32::try_from(h).unwrap_or(i32::MAX),
+            ]
+        });
+        if size != self.size {
+            self.size = size;
+            changed = true;
+        }
+        let interval =
+            (live.ndi_fps > 0).then(|| Duration::from_secs_f64(1.0 / f64::from(live.ndi_fps)));
+        if interval != self.interval {
+            self.interval = interval;
+            changed = true;
+        }
+        if changed {
+            self.refresh_note();
+            self.refresh_status(gpu);
+        }
+        changed
+    }
+
+    /// Whether anything is being shared, so the frame can skip all of this.
+    pub(crate) fn active(&self, gpu: &GpuShare) -> bool {
+        gpu.spout.is_some() || self.ndi.is_some()
+    }
+
+    /// Hands this frame's picture, `source`, to every open sender: black
+    /// instead when `black`. Returns whether the note or the status line
+    /// changed, so the app copies them to Settings only then.
+    pub(crate) fn frame(
+        &mut self,
+        gpu: &mut GpuShare,
+        gl: &Gl,
+        caps: &Caps,
+        source: &Texture,
+        black: bool,
+        now: Instant,
+    ) -> bool {
+        if !self.active(gpu) {
+            return false;
+        }
+        let poll = self.polled.is_none_or(|at| now.duration_since(at) >= POLL);
+        if poll {
+            self.polled = Some(now);
+            self.receivers = self.ndi.as_ref().and_then(Output::receivers);
+        }
+        let ndi_live = self
+            .ndi
+            .as_ref()
+            .is_some_and(|ndi| ndi.status() == Status::Live);
+        let due = match (self.interval, self.last_pack) {
+            (Some(interval), Some(last)) => {
+                // A frame's worth of slack, so a 30 fps cap on a 60 Hz show
+                // takes every other frame rather than drifting below 30.
+                now.duration_since(last) + interval / 4 >= interval
+            }
+            _ => true,
+        };
+        let pixels = ndi_live && self.receivers != Some(0) && due;
+        if pixels {
+            self.last_pack = Some(now);
+        }
+        let want = Want {
+            size: self.size,
+            black,
+            texture: gpu.spout.is_some(),
+            pixels,
+        };
+        if gpu.stage.is_none() && !gpu.stage_failed {
+            match ShareStage::new(gl, caps) {
+                Ok(stage) => gpu.stage = Some(stage),
+                Err(error) => {
+                    gpu.stage_failed = true;
+                    self.stage_note = format!(
+                        "the share stage would not build ({error}); Spout shares the picture \
+                         as it is, and NDI cannot send"
+                    );
+                    log::warn!("{}", self.stage_note);
+                }
+            }
+        }
+        let texture = match gpu.stage.as_mut() {
+            Some(stage) => match stage.prepare(source, want) {
+                Ok(texture) => texture,
+                Err(error) => {
+                    if self.stage_note.is_empty() {
+                        self.stage_note = format!("the shared picture could not be sized: {error}");
+                        log::warn!("{}", self.stage_note);
+                    }
+                    None
+                }
+            },
+            None => want.texture.then(|| source.share()),
+        };
+        if let (Some(spout), Some(texture)) = (gpu.spout.as_mut(), texture) {
+            let width = u32::try_from(texture.width).unwrap_or(0);
+            let height = u32::try_from(texture.height).unwrap_or(0);
+            spout.show_texture(SharedTexture::new(texture.id, width, height));
+            self.spout_size = Some([width, height]);
+        }
+        if let (Some(ndi), Some(stage)) = (self.ndi.as_mut(), gpu.stage.as_mut())
+            && let Some((data, [width, height])) = stage.take_pixels()
+        {
+            let sent = ndi.show(Pixels {
+                width,
+                height,
+                layout: Layout::Uyvy,
+                data,
+            });
+            if sent == strobe_output::Outcome::Sent {
+                self.counted += 1;
+            }
+        }
+        let mut changed = self.take_failures(gpu);
+        if poll {
+            let from = *self.counted_from.get_or_insert(now);
+            let span = now.duration_since(from).as_secs_f32();
+            if span >= 1.0 {
+                self.ndi_fps = self.counted as f32 / span;
+                self.counted = 0;
+                self.counted_from = Some(now);
+            }
+            changed |= self.refresh_status(gpu);
+        }
+        changed
+    }
+
+    /// Notes a sender the policy took down, once per outage.
+    fn take_failures(&mut self, gpu: &GpuShare) -> bool {
+        let mut changed = false;
+        if self.spout_note.is_empty()
+            && let Some(reason) = gpu.spout.as_ref().and_then(down_reason)
+        {
+            self.spout_note = format!("Spout stopped: {reason}");
+            changed = true;
+        }
+        if self.ndi_note.is_empty()
+            && let Some(reason) = self.ndi.as_ref().and_then(down_reason)
+        {
+            self.ndi_note = format!("NDI stopped: {reason}");
+            changed = true;
+        }
+        if changed {
+            self.refresh_note();
+        }
+        changed
+    }
+
+    /// Rebuilds the two notes: Spout's, and NDI's with the stage's (which
+    /// only NDI cannot do without). Only on a change.
+    fn refresh_note(&mut self) {
+        let ndi = [&self.ndi_note, &self.stage_note]
+            .iter()
+            .filter(|part| !part.is_empty())
+            .map(|part| part.as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
+        let notes = [self.spout_note.clone(), ndi];
+        for (new, old) in notes.iter().zip(&self.notes) {
+            if !new.is_empty() && new != old {
+                log::warn!("sharing: {new}");
+            }
+        }
+        self.notes = notes;
+    }
+
+    /// Rebuilds the status line; returns whether it changed. Twice a second
+    /// at most, so its allocation is not a per-frame one.
+    fn refresh_status(&mut self, gpu: &GpuShare) -> bool {
+        let mut parts = Vec::with_capacity(2);
+        if let Some(spout) = gpu.spout.as_ref()
+            && spout.status() == Status::Live
+        {
+            parts.push(match self.spout_size {
+                Some([w, h]) => format!("Spout: `{}` live at {w}x{h}", spout.name()),
+                None => format!("Spout: `{}` waiting for the first frame", spout.name()),
+            });
+        }
+        if let Some(ndi) = self.ndi.as_ref()
+            && ndi.status() == Status::Live
+        {
+            parts.push(match self.receivers {
+                Some(0) => format!(
+                    "NDI: `{}` waiting for a receiver (nothing is read back until one connects)",
+                    ndi.name()
+                ),
+                Some(1) => format!(
+                    "NDI: `{}` to 1 receiver at {:.0} fps",
+                    ndi.name(),
+                    self.ndi_fps
+                ),
+                Some(n) => format!(
+                    "NDI: `{}` to {n} receivers at {:.0} fps",
+                    ndi.name(),
+                    self.ndi_fps
+                ),
+                None => format!("NDI: `{}` at {:.0} fps", ndi.name(), self.ndi_fps),
+            });
+        }
+        let status = parts.join(" · ");
+        let changed = status != self.status;
+        self.status = status;
+        changed
     }
 }
 
-/// Opens a Spout sender named `name`, or nothing when it is off. The failure
-/// is worded for the console and the Settings row.
-fn open_spout(name: Option<&str>, note: &mut String) -> Option<Output> {
-    let name = name?;
+/// Lays this run's sharing flags over the saved choice: `--spout` and
+/// `--ndi` turn a sender on under a name, the others set its options. Only
+/// `live` changes, so the flags are never saved (D573).
+pub(crate) fn apply_flags(cli: &crate::cli::Cli, sharing: &mut crate::ui::state::SharingUi) {
+    let live = &mut sharing.live;
+    if let Some(name) = cli.spout.as_deref() {
+        live.spout = true;
+        name.clone_into(&mut live.spout_name);
+    }
+    if let Some(name) = cli.ndi.as_deref() {
+        live.ndi = true;
+        name.clone_into(&mut live.ndi_name);
+    }
+    if let Some(groups) = cli.ndi_groups.as_deref() {
+        groups.clone_into(&mut live.ndi_groups);
+    }
+    if let Some(fps) = cli.ndi_fps {
+        live.ndi_fps = fps;
+    }
+    match cli.share_size {
+        Some(crate::cli::ShareSize::Picture) => live.size = None,
+        Some(crate::cli::ShareSize::Fixed(width, height)) => live.size = Some([width, height]),
+        None => {}
+    }
+    sharing.reset_drafts();
+}
+
+/// Why `output`'s sender was taken down, if it was.
+fn down_reason(output: &Output) -> Option<&str> {
+    (output.status() == Status::Down)
+        .then(|| output.reason())
+        .flatten()
+}
+
+/// Opens a Spout sender named `name`. The failure is worded for the console
+/// and the Settings row.
+fn open_spout(name: &str, note: &mut String) -> Option<Output> {
     match SpoutSender::open(name) {
         Ok(sender) => {
             log::info!("sharing the output through Spout as `{name}`");
@@ -157,24 +448,90 @@ fn open_spout(name: Option<&str>, note: &mut String) -> Option<Output> {
         }
         Err(problem) => {
             *note = problem.to_string();
-            log::warn!("Spout output: {problem}");
             None
         }
     }
 }
 
-/// Opens an NDI sender named `name`, or nothing when it is off.
-fn open_ndi(name: Option<&str>, note: &mut String) -> Option<Output> {
-    let name = name?;
-    match NdiSender::open(name) {
+/// Opens an NDI sender for `ask`.
+fn open_ndi(ask: &NdiAsk, note: &mut String) -> Option<Output> {
+    let options = NdiOptions {
+        name: ask.name.clone(),
+        groups: ask.groups.clone(),
+        fps: ask.fps,
+    };
+    match NdiSender::open(&options) {
         Ok(sender) => {
-            log::info!("sharing the output over NDI as `{name}`");
-            Some(Output::open(name, Box::new(sender)))
+            log::info!(
+                "sharing the output over NDI as `{}`{}",
+                ask.name,
+                if ask.groups.is_empty() {
+                    String::new()
+                } else {
+                    format!(" in groups {}", ask.groups)
+                }
+            );
+            Some(Output::open(ask.name.clone(), Box::new(sender)))
         }
         Err(problem) => {
             *note = problem.to_string();
-            log::warn!("NDI output: {problem}");
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nothing_is_opened_or_said_while_both_are_off() {
+        let mut sharing = Sharing::new();
+        let mut gpu = GpuShare::default();
+        let live = SharingPref::default();
+        assert!(
+            sharing.apply(&live, &mut gpu),
+            "the first apply is a change"
+        );
+        assert!(!sharing.active(&gpu), "nothing is shared");
+        assert!(
+            sharing.notes().iter().all(|note| note.is_empty()),
+            "and nothing is wrong"
+        );
+        assert!(
+            !sharing.apply(&live, &mut gpu),
+            "the same settings again change nothing"
+        );
+    }
+
+    #[test]
+    fn a_size_or_a_cap_is_a_change_without_a_sender() {
+        let mut sharing = Sharing::new();
+        let mut gpu = GpuShare::default();
+        let mut live = SharingPref::default();
+        sharing.apply(&live, &mut gpu);
+        live.size = Some([1920, 1080]);
+        assert!(sharing.apply(&live, &mut gpu), "a new size applies");
+        assert_eq!(sharing.size, Some([1920, 1080]), "and is kept");
+        live.ndi_fps = 30;
+        assert!(sharing.apply(&live, &mut gpu), "a new cap applies");
+        assert_eq!(
+            sharing.interval,
+            Some(Duration::from_secs_f64(1.0 / 30.0)),
+            "as the least time between frames"
+        );
+    }
+
+    #[test]
+    fn a_context_change_asks_for_spout_again() {
+        let mut sharing = Sharing::new();
+        let mut gpu = GpuShare::default();
+        let live = SharingPref::default();
+        sharing.apply(&live, &mut gpu);
+        sharing.context_changed();
+        assert!(
+            sharing.apply(&live, &mut gpu),
+            "after a rebuild the Spout choice is applied again"
+        );
     }
 }

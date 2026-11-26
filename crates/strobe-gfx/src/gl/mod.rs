@@ -1974,7 +1974,9 @@ impl Texture {
     /// Valid only while this texture lives and the calling thread has its
     /// context current. A texture-sharing library takes it for the duration
     /// of one call and stores nothing, so the description is made and used
-    /// inside a frame and never kept.
+    /// inside a frame and never kept. Native only: a browser has no Spout
+    /// or NDI to share with, and WebGL's names are not numbers.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn share(&self) -> TextureShare {
         TextureShare {
             id: self.raw.0.get(),

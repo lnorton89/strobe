@@ -133,15 +133,26 @@ pub struct Cli {
     #[arg(long)]
     pub show_output: bool,
     /// Share the output through Spout (Windows only) under this name, which
-    /// a receiver such as Resolume or OBS lists (D570, D571). Off unless
-    /// asked for here or in Settings > Output.
+    /// a receiver such as Resolume or OBS lists (D570, D573). For this run
+    /// only: Settings > Output > Sharing is what is saved.
     #[arg(long, value_name = "NAME")]
     pub spout: Option<String>,
     /// Share the output over the network through NDI under this name, which
-    /// a receiver such as NDI Studio Monitor lists (D570). Off unless asked
-    /// for here or in Settings > Output. Needs the NDI 6 runtime installed.
+    /// a receiver such as NDI Studio Monitor lists (D570, D573). For this run
+    /// only. Needs the NDI 6 runtime, from NDI Tools (https://ndi.video).
     #[arg(long, value_name = "NAME")]
     pub ndi: Option<String>,
+    /// The NDI groups to send in, comma-separated (D573). For this run only.
+    #[arg(long, value_name = "GROUPS")]
+    pub ndi_groups: Option<String>,
+    /// The most frames a second NDI sends, 0 for every frame (D573). For
+    /// this run only.
+    #[arg(long, value_name = "FPS")]
+    pub ndi_fps: Option<u32>,
+    /// The size Spout and NDI share the picture at, as WIDTHxHEIGHT, or
+    /// `picture` to follow the picture's own (D573). For this run only.
+    #[arg(long, value_name = "WxH", value_parser = parse_share_size)]
+    pub share_size: Option<ShareSize>,
     /// Put the output fullscreen at launch: on `--output-monitor` if given,
     /// else on the monitor the output window opens on. For a venue
     /// autostart, where nobody is there to press F11.
@@ -408,6 +419,23 @@ fn parse_size(text: &str) -> Result<(u32, u32), String> {
     Ok((w, h))
 }
 
+/// What `--share-size` asks for: the picture's own size, or a fixed one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShareSize {
+    /// Follow the picture.
+    Picture,
+    /// Always this many pixels.
+    Fixed(u32, u32),
+}
+
+/// Parses `picture` or `1920x1080`.
+fn parse_share_size(text: &str) -> Result<ShareSize, String> {
+    if text.trim().eq_ignore_ascii_case("picture") {
+        return Ok(ShareSize::Picture);
+    }
+    parse_size(text).map(|(w, h)| ShareSize::Fixed(w, h))
+}
+
 impl Cli {
     /// Whether a library that cannot be read is no fault: this run controls
     /// another Strobe (`--control`) and was not pointed at a library, so the
@@ -458,6 +486,41 @@ mod tests {
             cli.ndi.as_deref(),
             Some("Strobe Out"),
             "--ndi names the sender"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn share_size_takes_a_size_or_the_picture_and_the_ndi_options_parse() -> Result<()> {
+        let cli = Cli::try_parse_from([
+            "strobe",
+            "--share-size",
+            "1920x1080",
+            "--ndi-fps",
+            "30",
+            "--ndi-groups",
+            "Stage, FOH",
+        ])?;
+        assert_eq!(
+            cli.share_size,
+            Some(ShareSize::Fixed(1920, 1080)),
+            "a fixed size"
+        );
+        assert_eq!(cli.ndi_fps, Some(30), "a frame-rate cap");
+        assert_eq!(
+            cli.ndi_groups.as_deref(),
+            Some("Stage, FOH"),
+            "groups as typed"
+        );
+        let cli = Cli::try_parse_from(["strobe", "--share-size", "Picture"])?;
+        assert_eq!(
+            cli.share_size,
+            Some(ShareSize::Picture),
+            "the picture's own"
+        );
+        assert!(
+            Cli::try_parse_from(["strobe", "--share-size", "big"]).is_err(),
+            "anything else is refused"
         );
         Ok(())
     }

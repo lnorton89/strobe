@@ -428,6 +428,9 @@ struct Stack {
     /// The output post stage (the meta controls), compiled once when the
     /// context opens and idle unless a value is off neutral (D180).
     post: Post,
+    /// The share stage and the Spout sender (D573): bound to this context,
+    /// so they sit before it and go with it.
+    share: crate::output::GpuShare,
     /// Owns GL timer queries, so it sits before the context in drop order.
     perf: Performance,
     ui: UiHost,
@@ -522,6 +525,7 @@ impl Stack {
             show: None,
             compositor,
             post,
+            share: crate::output::GpuShare::default(),
             perf,
             ui,
             control,
@@ -555,6 +559,7 @@ impl Stack {
             show,
             compositor,
             post,
+            share,
             mut perf,
             mut ui,
             control,
@@ -578,6 +583,7 @@ impl Stack {
             drop(thumbnail);
             drop(compositor);
             drop(post);
+            share.abandon();
             drop(perf);
             ui.abandon();
         } else {
@@ -588,6 +594,7 @@ impl Stack {
             drop(thumbnail);
             drop(compositor);
             drop(post);
+            drop(share);
             perf.release();
             drop(perf);
             ui.destroy();
@@ -940,16 +947,9 @@ impl Running {
         } else {
             UiState::load()
         };
-        // Sharing the output (D570): a flag names a sender for this run, and
-        // Settings can turn either on for the session.
-        if let Some(name) = cli.spout.as_deref() {
-            ui_state.sharing.spout = true;
-            ui_state.sharing.spout_name = name.to_owned();
-        }
-        if let Some(name) = cli.ndi.as_deref() {
-            ui_state.sharing.ndi = true;
-            ui_state.sharing.ndi_name = name.to_owned();
-        }
+        // Sharing the output (D573): flags lay this run's choice over the
+        // saved one, and are never written back.
+        crate::output::apply_flags(cli, &mut ui_state.sharing);
         if cli.system_title_bar {
             ui_state.custom_title_bar = false;
         }
@@ -1573,6 +1573,8 @@ impl Running {
         // The new control window has a new egui context and painter: the
         // thumbnails uploaded through the old one are not in it (D550).
         running.ui_state.thumbs.forget_textures();
+        // The Spout sender went with the old context (D573).
+        running.share.context_changed();
         running.stack.perf.resume_scale(carried.scale);
         running.refresh_monitors(event_loop);
         if let Some((source, playlist, point)) = reload {
@@ -4694,15 +4696,9 @@ impl Running {
                     );
                 }
                 Action::SetPrerender(on) => self.set_prerender(on),
-                Action::SetSpout(on) => {
-                    self.ui_state.sharing.spout = on;
-                    self.share.apply(&self.ui_state.sharing);
-                    self.ui_state.sharing.note = self.share.note().to_owned();
-                }
-                Action::SetNdi(on) => {
-                    self.ui_state.sharing.ndi = on;
-                    self.share.apply(&self.ui_state.sharing);
-                    self.ui_state.sharing.note = self.share.note().to_owned();
+                Action::SetSharing(pref) => {
+                    self.ui_state.sharing.choose(pref);
+                    self.apply_sharing();
                 }
                 Action::SetAdaptive(on) => {
                     self.stack.perf.set_enabled(on);
@@ -5556,52 +5552,54 @@ impl Running {
     }
 
     /// Hands this frame's finished picture to the senders that are on
-    /// (D570): the post stage's output when it ran, else the compositor's
-    /// mix, else the scene's output — the same choice a hidden window's
-    /// screenshot makes. Spout takes the texture; NDI is given the pixels,
-    /// read back only when it is on.
+    /// (D573): the post stage's output when it ran, else the compositor's
+    /// mix, else the scene's output, the same choice a hidden window's
+    /// screenshot makes, and black while the show is blacked out.
     fn share_picture(&mut self, composited: bool) {
-        let (wants_spout, wants_ndi) = self.share.names();
-        if wants_spout.is_none() && wants_ndi.is_none() {
+        let stack = &mut self.stack;
+        if !self.share.active(&stack.share) {
             return;
         }
-        let texture = if self.posted {
-            Some(self.stack.post.output_share())
+        let source = if self.posted {
+            stack.post.output_texture()
         } else if composited {
-            Some(self.stack.compositor.output_share())
+            stack.compositor.output_texture()
+        } else if let Some(session) = stack.session.as_ref() {
+            session.player.output_texture()
         } else {
-            self.stack
-                .session
-                .as_ref()
-                .map(|session| session.player.output_share())
+            return;
         };
-        let frame = wants_ndi.and_then(|_| {
-            let (rgba, size) = if self.posted {
-                (self.stack.post.read_output(), self.stack.post.size())
-            } else if composited {
-                (
-                    self.stack.compositor.read_output(),
-                    self.stack.compositor.size(),
-                )
-            } else {
-                let session = self.stack.session.as_ref()?;
-                let size = session.player.render_size();
-                (session.player.read_output(), size)
-            };
-            Some(strobe_output::Frame {
-                width: size[0].max(0) as u32,
-                height: size[1].max(0) as u32,
-                rgba,
-            })
-        });
-        let picture = crate::output::Picture {
-            texture,
-            frame: frame.as_ref(),
-        };
-        self.share.show(&picture);
-        if self.share.faulted() {
-            self.ui_state.sharing.note = self.share.note().to_owned();
+        let changed = self.share.frame(
+            &mut stack.share,
+            stack.gfx.gl(),
+            stack.gfx.caps(),
+            source,
+            self.blackout,
+            Instant::now(),
+        );
+        if changed {
+            self.copy_sharing_lines();
         }
+    }
+
+    /// Opens or closes senders after Settings or a flag changed one, and
+    /// copies what they said to the Settings row. Allocates only on a change.
+    fn apply_sharing(&mut self) {
+        if self
+            .share
+            .apply(&self.ui_state.sharing.live, &mut self.stack.share)
+        {
+            self.copy_sharing_lines();
+        }
+    }
+
+    /// Copies the senders' notes and status line to the Settings rows.
+    fn copy_sharing_lines(&mut self) {
+        let [spout, ndi] = self.share.notes();
+        let ui = &mut self.ui_state.sharing;
+        spout.clone_into(&mut ui.spout_note);
+        ndi.clone_into(&mut ui.ndi_note);
+        self.share.status().clone_into(&mut ui.status);
     }
 
     /// Adopts the adaptive controller's new scale and says why.
@@ -5847,6 +5845,8 @@ impl Running {
                 .as_ref()
                 .is_some_and(|session| same_folder(&session.dir, last))
         });
+        // Opens or closes a sender when Settings or a flag changed one.
+        self.apply_sharing();
         let imported = self.imported_entry();
         let scene_transitions = self
             .stack
@@ -5912,10 +5912,6 @@ impl Running {
             .lan
             .desktop()
             .is_some_and(|desktop| desktop.controls_wanted());
-        // Opens or closes a sender when Settings or a flag changed one.
-        self.share.apply(&self.ui_state.sharing);
-        self.ui_state.sharing.note = self.share.note().to_owned();
-        let sharing = self.ui_state.sharing.clone();
         let mut model = Model {
             ui: &mut self.ui_state,
             library: &self.library,
@@ -5956,7 +5952,6 @@ impl Running {
             monitors: &self.monitor_labels,
             output_monitor: self.output_monitor.index(),
             output_visible: self.output_visible,
-            sharing,
             fullscreen: self.stack.output.window().fullscreen().is_some(),
             maximized: self.stack.control.window().is_maximized(),
             gl_summary: &self.gl_summary,

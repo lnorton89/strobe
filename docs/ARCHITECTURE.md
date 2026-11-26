@@ -121,11 +121,15 @@ the page's one context, a step at a time (D558).
   the optional NDI and Spout runtimes. No GL, no Strobe crate, no window:
   the renderer hands it pixels, or lends it a texture for Spout's
   zero-copy path. Spout (Windows) calls the installed `SpoutLibrary.dll`'s
-  mangled exports through `libloading` (D571); NDI is behind the crate's
-  `ndi` feature and loads its runtime at run time. The app taps it in
-  `strobe_app::output`, after the post stage and on the picture rather than
-  the letterboxed window (D570), and `--spout NAME` / `--ndi NAME` or
-  Settings > Output turn a sender on.
+  vtable through `libloading` (D571, D572); NDI is behind the crate's `ndi`
+  feature and loads its runtime at run time. `strobe_gfx::share::ShareStage`
+  prepares the picture for them on the GPU: scaled to a fixed size, black
+  in blackout, and packed to UYVY for NDI and read back through a fenced
+  ring (D573). The app taps it in `strobe_app::output`, after the post stage
+  and on the picture rather than the letterboxed window; the stage and the
+  Spout sender live in the context stack (`GpuShare`) and go with it.
+  Settings > Output > Sharing (saved) or `--spout`, `--ndi` and friends (one
+  run) turn a sender on.
 - `strobe-web` is the website's sandbox engine, built for
   `wasm32-unknown-unknown` (D524). It takes `strobe-gfx` without its
   `native` feature (no glutin, winit or offscreen worker: a `Gl` comes from

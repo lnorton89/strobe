@@ -17,16 +17,17 @@
 //! it.
 //!
 //! **The library.** `SpoutLibrary.dll` as Spout ships it (2.007 and later)
-//! exports one symbol, `GetSpout`, which returns a `SPOUTLIBRARY*`: an object
+//! exports one symbol, `GetSpout`, which builds and returns a new
+//! `SPOUTLIBRARY*`, deleted by its own `Release`: an object
 //! whose first word points at a vtable of 175 virtual calls, the shape
 //! `SpoutLibrary/include/SpoutLibrary/SpoutLibrary.h` declares. There is no
 //! C ABI and no import library, and the class's own methods are not exported
 //! by name, so the object is kept as an address, its vtable is read once, and
-//! the three calls the sender needs are taken from their declared slots
-//! (D572). A library whose vtable layout differs is not detected here: Spout
-//! has kept these three slots since 2.006, and the calls below are the
-//! earliest ones it declares, ahead of every conditional section of the
-//! header.
+//! the calls the sender needs are taken from the slots MSVC gives them
+//! (D572, D573). A library whose layout differs is not detected here, so the
+//! slots are pinned to the 2.007 SDK: they were read from `cl`'s own code for
+//! calls through that header, which differs from a count of its declarations
+//! because MSVC groups a virtual's overloads together.
 //!
 //! **The thread.** `SendTexture` registers the GL texture with Direct3D on
 //! the calling thread, so it must be called where the GL context is current
@@ -46,7 +47,7 @@
 //! the one thing to change, and it is a constant with its reason here rather
 //! than a setting nobody understands.
 
-use crate::Frame;
+use crate::frame::Pixels;
 use crate::sink::{Problem, Sink};
 use crate::texture::SharedTexture;
 
@@ -89,10 +90,37 @@ mod abi {
 
     /// `bool CreateSender(const char*, unsigned, unsigned, DWORD)`: slot 70.
     ///
-    /// The SDK's header lists 69; the library Spout 2.007.018 ships puts it
-    /// one slot later, and 70 is the slot the vendor's own compiled calls
-    /// dispatch to (read from `cl`-built code, not from the header).
+    /// Counting the header's declarations gives 69. MSVC places every
+    /// overload of a virtual name together, at the first one's position, so
+    /// `GetName(std::string)`, declared near the end, takes slot 7 and moves
+    /// `GetName()` and everything up to it one slot later. Every slot here is
+    /// the one `cl` itself emits for a call through the 2.007.018 header
+    /// (`call [rax+8*slot]`), not a count.
     pub(super) const CREATE_SENDER: usize = 70;
+
+    /// `bool UpdateSender(const char*, unsigned, unsigned)`: slot 71, a
+    /// resize of the sender that exists.
+    pub(super) const UPDATE_SENDER: usize = 71;
+
+    /// `void HoldFps(int)`: slot 41, Spout's own frame-rate limiter, which
+    /// sleeps the calling thread. Never called: Strobe paces its own frames,
+    /// and a sleep in the render loop is the one thing the show cannot have.
+    /// Recorded so nobody reaches for it.
+    #[expect(dead_code, reason = "documents a call that must not be made")]
+    pub(super) const HOLD_FPS: usize = 41;
+
+    /// `void Release()`: slot 174. `GetSpout` builds a new object on every
+    /// call and this deletes it; without it the object, its Direct3D device
+    /// and its interop outlive the sender, and unloading the library under
+    /// them leaves code running that is no longer mapped.
+    pub(super) const RELEASE: usize = 174;
+
+    /// A virtual call with `this` first, as the x64 ABI passes it.
+    pub(super) type UpdateSenderFn =
+        unsafe extern "system" fn(*mut c_void, *const c_char, u32, u32) -> bool;
+
+    /// A virtual call with `this` first, as the x64 ABI passes it.
+    pub(super) type ReleaseFn = unsafe extern "system" fn(*mut c_void);
 
     /// `SPOUTHANDLE GetSpout(VOID)`.
     pub(super) type GetSpoutFn = unsafe extern "system" fn() -> *mut c_void;
@@ -153,7 +181,7 @@ impl SpoutSender {
 }
 
 impl Sink for SpoutSender {
-    fn send(&mut self, _frame: &Frame) -> Result<(), Problem> {
+    fn send(&mut self, _pixels: Pixels<'_>) -> Result<(), Problem> {
         Err(Problem::new(
             "a Spout sender shares the texture, not a frame of pixels",
         ))
@@ -204,8 +232,8 @@ mod imp {
 mod imp {
     use super::abi::{
         CREATE_SENDER, CountFn, CreateSenderFn, FlagFn, GET_FPS, GET_HEIGHT, GET_NAME, GET_SPOUT,
-        GET_WIDTH, GetSpoutFn, IS_INITIALIZED, RELEASE_SENDER, RealFn, ReleaseSenderFn,
-        SEND_TEXTURE, SendTextureFn, TextFn,
+        GET_WIDTH, GetSpoutFn, IS_INITIALIZED, RELEASE, RELEASE_SENDER, RealFn, ReleaseFn,
+        ReleaseSenderFn, SEND_TEXTURE, SendTextureFn, TextFn, UPDATE_SENDER, UpdateSenderFn,
     };
     use super::{Problem, SharedTexture};
     use libloading::Library;
@@ -236,6 +264,10 @@ mod imp {
         object: usize,
         /// `CreateSender` from the object's vtable.
         create: CreateSenderFn,
+        /// `UpdateSender`: a resize of the sender that exists.
+        update: UpdateSenderFn,
+        /// `Release`: deletes the object `GetSpout` built.
+        destroy: ReleaseFn,
         /// `SendTexture` from the object's vtable.
         send: SendTextureFn,
         /// `ReleaseSender` from the object's vtable.
@@ -280,6 +312,8 @@ mod imp {
             }
             let vtable = vtable_of(object);
             let create = method(vtable, CREATE_SENDER);
+            let update = method(vtable, UPDATE_SENDER);
+            let destroy = method(vtable, RELEASE);
             let send = method(vtable, SEND_TEXTURE);
             let release = method(vtable, RELEASE_SENDER);
             let initialized = method(vtable, IS_INITIALIZED);
@@ -293,6 +327,8 @@ mod imp {
                 _library: library,
                 object: object as usize,
                 create,
+                update,
+                destroy,
                 send,
                 release,
                 initialized,
@@ -320,14 +356,13 @@ mod imp {
                 ));
             }
             if self.size != Some(size) {
-                let created = make_sender(
-                    self.create,
-                    self.object as *mut c_void,
-                    &self.name,
-                    size.0,
-                    size.1,
-                );
-                if !created {
+                let object = self.object as *mut c_void;
+                let made = if self.size.is_some() {
+                    resize_sender(self.update, object, &self.name, size.0, size.1)
+                } else {
+                    make_sender(self.create, object, &self.name, size.0, size.1)
+                };
+                if !made {
                     return Err(Problem::new(
                         "Spout refused the sender; the name may be in use by another program, or \
                          this GPU has no Direct3D interop",
@@ -339,7 +374,9 @@ mod imp {
                 if !live(self.initialized, self.object as *mut c_void) {
                     self.size = None;
                     return Err(Problem::new(
-                        "Spout accepted the sender but reports nothing live; the GPU may have no                          Direct3D/OpenGL interop, and SpoutSettings says what this machine                          supports",
+                        "Spout accepted the sender but reports nothing live; the GPU may have no \
+                         Direct3D/OpenGL interop, and SpoutSettings says what this machine \
+                         supports",
                     ));
                 }
                 log::info!(
@@ -387,6 +424,9 @@ mod imp {
     impl Drop for Sender {
         fn drop(&mut self) {
             self.close();
+            // The object goes before the library: `Drop` runs ahead of the
+            // fields, so `_library` is still loaded for this call.
+            destroy(self.destroy, self.object as *mut c_void);
         }
     }
 
@@ -522,6 +562,28 @@ mod imp {
         // SAFETY: the object is the library's own; `GetWidth` and
         // `GetHeight` only report the sender's size.
         unsafe { f(object) }
+    }
+
+    /// Resizes the sender: `UpdateSender(name, width, height)`.
+    fn resize_sender(
+        update: UpdateSenderFn,
+        object: *mut c_void,
+        name: &CString,
+        width: u32,
+        height: u32,
+    ) -> bool {
+        // SAFETY: as for `make_sender`: the object is the library's own, the
+        // name a NUL-terminated string that outlives the call, and the call
+        // runs on the render thread with the GL context current.
+        unsafe { update(object, name.as_ptr(), width, height) }
+    }
+
+    /// Deletes the object `GetSpout` built.
+    fn destroy(f: ReleaseFn, object: *mut c_void) {
+        // SAFETY: the object is the one `GetSpout` returned for this sender
+        // and nothing calls it afterwards: this runs once, from `Drop`, while
+        // the library holding its code is still loaded.
+        unsafe { f(object) };
     }
 
     /// Releases the sender.

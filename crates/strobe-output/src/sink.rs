@@ -4,7 +4,7 @@
 //               which owns one, sends frames to it and takes it down once
 //               when it fails.
 //
-// Dependencies: log; crate::Frame
+// Dependencies: log; crate::frame (Pixels), crate::texture
 // ============================================================================
 
 //! The sender seam.
@@ -21,7 +21,7 @@
 //! and never stops the frame, and a frame that goes nowhere costs a log line
 //! per outage and nothing else.
 
-use crate::Frame;
+use crate::frame::Pixels;
 use crate::texture::SharedTexture;
 
 /// Why a sink could not send. The wording is for a person reading the
@@ -56,7 +56,7 @@ pub trait Sink: Send + 'static {
     /// Hands `frame` over. An error takes the sink down
     /// ([`Output::show`] drops it), so a failure is not reported twice and
     /// is not retried against the same broken sender.
-    fn send(&mut self, frame: &Frame) -> Result<(), Problem>;
+    fn send(&mut self, pixels: Pixels<'_>) -> Result<(), Problem>;
 
     /// Hands over the renderer's texture instead of pixels, for a
     /// destination that shares GPU memory (Spout). The default refuses, so a
@@ -65,6 +65,13 @@ pub trait Sink: Send + 'static {
         Err(Problem::new(
             "this destination takes frames of pixels, not a texture",
         ))
+    }
+
+    /// How many receivers are connected, for a destination that can tell
+    /// (NDI can; Spout cannot). A host skips the work of a frame nobody is
+    /// watching when this is `Some(0)`.
+    fn receivers(&self) -> Option<u32> {
+        None
     }
 
     /// Releases the destination now, on the thread that owns it.
@@ -146,6 +153,11 @@ impl Output {
         self.reason.as_deref()
     }
 
+    /// How many receivers the sink says are connected, when it can tell.
+    pub fn receivers(&self) -> Option<u32> {
+        self.sink.as_ref().and_then(|sink| sink.receivers())
+    }
+
     /// Frames a sink took.
     pub fn sent(&self) -> u64 {
         self.sent
@@ -162,12 +174,12 @@ impl Output {
     /// A failing sink is closed, dropped and said once; the frame is
     /// dropped, not queued, so a slow or broken destination can never
     /// back up inside the show.
-    pub fn show(&mut self, frame: &Frame) -> Outcome {
+    pub fn show(&mut self, pixels: Pixels<'_>) -> Outcome {
         let Some(sink) = self.sink.as_mut() else {
             self.dropped += 1;
             return Outcome::Nothing;
         };
-        match sink.send(frame) {
+        match sink.send(pixels) {
             Ok(()) => {
                 self.sent += 1;
                 Outcome::Sent
@@ -249,6 +261,7 @@ impl Drop for Output {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Frame;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -260,7 +273,7 @@ mod tests {
     }
 
     impl Sink for Fake {
-        fn send(&mut self, _frame: &Frame) -> Result<(), Problem> {
+        fn send(&mut self, _pixels: Pixels<'_>) -> Result<(), Problem> {
             if self.sent.load(Ordering::SeqCst) >= self.fail_after {
                 return Err(Problem::new("the fake said no"));
             }
@@ -295,7 +308,11 @@ mod tests {
         let closes = Arc::new(AtomicUsize::new(0));
         let mut output = Output::open("test", fake(&sent, &closes, usize::MAX));
         for _ in 0..3 {
-            assert_eq!(output.show(&frame()), Outcome::Sent, "the sink takes it");
+            assert_eq!(
+                output.show(frame().pixels()),
+                Outcome::Sent,
+                "the sink takes it"
+            );
         }
         assert_eq!(output.sent(), 3, "three frames went out");
         assert_eq!(output.dropped(), 0, "none were lost");
@@ -308,9 +325,17 @@ mod tests {
         let sent = Arc::new(AtomicUsize::new(0));
         let closes = Arc::new(AtomicUsize::new(0));
         let mut output = Output::open("test", fake(&sent, &closes, 2));
-        assert_eq!(output.show(&frame()), Outcome::Sent, "the first frame");
-        assert_eq!(output.show(&frame()), Outcome::Sent, "the second");
-        assert_eq!(output.show(&frame()), Outcome::Nothing, "the failure");
+        assert_eq!(
+            output.show(frame().pixels()),
+            Outcome::Sent,
+            "the first frame"
+        );
+        assert_eq!(output.show(frame().pixels()), Outcome::Sent, "the second");
+        assert_eq!(
+            output.show(frame().pixels()),
+            Outcome::Nothing,
+            "the failure"
+        );
         assert_eq!(output.status(), Status::Down, "it is down");
         assert_eq!(
             output.reason(),
@@ -318,7 +343,11 @@ mod tests {
             "the reason is kept after the sink is gone"
         );
         assert_eq!(closes.load(Ordering::SeqCst), 1, "it was closed once");
-        assert_eq!(output.show(&frame()), Outcome::Nothing, "nothing after");
+        assert_eq!(
+            output.show(frame().pixels()),
+            Outcome::Nothing,
+            "nothing after"
+        );
         assert_eq!(output.dropped(), 2, "both lost frames were counted");
         assert_eq!(closes.load(Ordering::SeqCst), 1, "and never closed twice");
     }
@@ -337,14 +366,22 @@ mod tests {
             !output.reopen(fake(&sent, &closes, 1)),
             "a live one does not"
         );
-        assert_eq!(output.show(&frame()), Outcome::Sent, "and it sends");
-        assert_eq!(output.show(&frame()), Outcome::Nothing, "then fails");
+        assert_eq!(output.show(frame().pixels()), Outcome::Sent, "and it sends");
+        assert_eq!(
+            output.show(frame().pixels()),
+            Outcome::Nothing,
+            "then fails"
+        );
         assert!(
             output.reopen(fake(&sent, &closes, usize::MAX)),
             "a failed one is replaced"
         );
         assert_eq!(output.reason(), None, "the old reason is gone");
-        assert_eq!(output.show(&frame()), Outcome::Sent, "and pictures flow");
+        assert_eq!(
+            output.show(frame().pixels()),
+            Outcome::Sent,
+            "and pictures flow"
+        );
     }
 
     #[test]
@@ -356,7 +393,11 @@ mod tests {
         assert_eq!(output.status(), Status::Stopped, "stopped, not down");
         assert_eq!(output.reason(), None, "no failure to report");
         assert_eq!(closes.load(Ordering::SeqCst), 1, "the sink was closed");
-        assert_eq!(output.show(&frame()), Outcome::Nothing, "and sends nothing");
+        assert_eq!(
+            output.show(frame().pixels()),
+            Outcome::Nothing,
+            "and sends nothing"
+        );
         drop(output);
         assert_eq!(
             closes.load(Ordering::SeqCst),

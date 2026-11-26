@@ -1,6 +1,6 @@
 [package]
 name = "strobe-output"
-description = "Sharing the finished picture: the output frame, BGRA and UYVY packing, the Spout and NDI senders, and probes for their optional runtimes. No GL."
+description = "Sharing the finished picture: the frame layouts, BGRA and UYVY packing, the Spout and NDI senders, and probes for their optional runtimes. No GL."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,21 +9,21 @@ publish = false
 
 [dependencies]
 log.workspace = true
+# The NDI sender (D570, D573). On Windows and Linux its runtime is loaded at
+# run time, so this needs no SDK and no C toolchain at build time; without the
+# runtime a sender says where to get it. (Apple targets link the SDK
+# statically and need NDI_SDK_DIR: not built there yet.)
+grafton-ndi = { workspace = true, optional = true }
 
-# The Spout library is a DLL with a C++ name-mangled ABI: no import library
-# ships with it, so it is found and its exports resolved at runtime (D571).
+# Spout's library is a DLL with a C++ vtable interface and no import library,
+# so it is found and its one export resolved at runtime (D571, D572).
 [target.'cfg(windows)'.dependencies]
 libloading.workspace = true
 
-# The NDI sender (D570). Its runtime is loaded at runtime by the crate, so this
-# needs no SDK and no C toolchain at build time; without the runtime a sender
-# reports what to install.
-grafton-ndi = { workspace = true, optional = true }
-
 [features]
 default = []
-# The NDI sender. On by default in the app; off for a build that must not carry
-# the dependency at all.
+# The NDI sender. On in the app; off for a build that must not carry the
+# dependency at all.
 ndi = ["dep:grafton-ndi"]
 
 [dev-dependencies]
