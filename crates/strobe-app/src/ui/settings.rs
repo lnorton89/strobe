@@ -187,6 +187,7 @@ const SCALE: &str = "Render scale";
 pub const PRERENDER: &str = "Prerender scenes";
 const SPOUT: &str = "Spout";
 const SPOUT_NAME: &str = "Spout name";
+const SPOUT_CLEAN: &str = "Clean feed";
 const NDI: &str = "NDI";
 const NDI_NAME: &str = "NDI name";
 const NDI_GROUPS: &str = "NDI groups";
@@ -214,7 +215,7 @@ struct Entry {
 
 /// Every row search finds, in page order. The Shortcuts page's rows are
 /// the commands, matched from [`CommandId::ALL`] instead.
-const INDEX: [Entry; 41] = [
+const INDEX: [Entry; 42] = [
     Entry {
         page: SettingsPage::Output,
         title: OUTPUT_WINDOW,
@@ -244,6 +245,11 @@ const INDEX: [Entry; 41] = [
         page: SettingsPage::Output,
         title: SPOUT_NAME,
         words: "sender spout name rename",
+    },
+    Entry {
+        page: SettingsPage::Output,
+        title: SPOUT_CLEAN,
+        words: "spout second sender raw pre post unprocessed clean feed blackout",
     },
     Entry {
         page: SettingsPage::Output,
@@ -825,6 +831,30 @@ fn sharing(
                 }
             },
         );
+        let mut clean = state.live.spout_clean;
+        let clean_row = Row::new(SPOUT_CLEAN).description(
+            "A second Spout sender with the scene before the output's look and mirrors, which \
+             blackout leaves alone: for a mixer that wants the raw picture beside the show. Its \
+             name is typed beside the switch; Enter applies it.",
+        );
+        group.row(clean_row, |ui| {
+            ui.horizontal(|ui| {
+                if form::toggle(ui, theme, &mut clean).changed() {
+                    let mut next = saved.clone();
+                    next.spout_clean = clean;
+                    chosen = Some(next);
+                }
+                let field = form::field(ui, theme, &mut state.clean_draft, "Strobe Clean", 160.0);
+                if field.lost_focus() && commit(&state.clean_draft, &saved.spout_clean_name) {
+                    let mut next = saved.clone();
+                    state
+                        .clean_draft
+                        .trim()
+                        .clone_into(&mut next.spout_clean_name);
+                    chosen = Some(next);
+                }
+            });
+        });
         let mut ndi = state.live.ndi;
         let mut row = Row::new(NDI).description(
             "Sends the picture over the network as NDI, so OBS, vMix, Resolume or NDI Studio \

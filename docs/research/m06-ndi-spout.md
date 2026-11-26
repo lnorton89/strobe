@@ -291,8 +291,9 @@ What it found for Spout:
 
 **Left for later, in rough order of demand:**
 
-1. Several senders: a clean feed before the post stage and blackout beside
-   the final one (Resolume, MadMapper, OBS; issue #116).
+1. Several senders. The clean Spout feed beside the final one is built
+   (D574); a list of any number of senders, and a clean NDI stream, are not
+   (Resolume, MadMapper, OBS; issue #116).
 2. Spout and NDI input as a media source (its own item, below).
 3. NDI audio.
 4. Alpha, once a scene can produce it (D248).

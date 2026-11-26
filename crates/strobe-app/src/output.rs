@@ -21,7 +21,10 @@
 //! - **Its size** is the picture's own, or a fixed size chosen in Settings
 //!   (`--share-size`), so a 720p render can feed a 1080p mixer input.
 //! - **Spout** takes the texture itself, on the render thread with the
-//!   context current: nothing is read back (D571).
+//!   context current: nothing is read back (D571). A second Spout sender,
+//!   the **clean feed**, can carry the picture before the post stage and
+//!   never blacked out, under a name of its own (D574), for a mixer that
+//!   wants the raw scene beside the show's output.
 //! - **NDI** takes UYVY packed on the GPU and read back through a fenced ring
 //!   (`strobe_gfx::share`), submitted asynchronously. While NDI reports no
 //!   receiver, nothing is packed or read back at all; an optional cap limits
@@ -55,6 +58,10 @@ pub(crate) struct GpuShare {
     /// The stage would not build; said once, then Spout goes direct.
     stage_failed: bool,
     spout: Option<Output>,
+    /// The clean feed's own stage, for its size (D574).
+    clean_stage: Option<ShareStage>,
+    /// The clean feed: a second Spout sender (D574).
+    clean: Option<Output>,
 }
 
 impl GpuShare {
@@ -63,12 +70,30 @@ impl GpuShare {
     /// sender is leaked rather than released, because releasing it calls
     /// into a context that no longer exists.
     pub(crate) fn abandon(self) {
-        let Self { stage, spout, .. } = self;
+        let Self {
+            stage,
+            spout,
+            clean_stage,
+            clean,
+            ..
+        } = self;
         drop(stage);
-        if let Some(spout) = spout {
-            std::mem::forget(spout);
+        drop(clean_stage);
+        for sender in [spout, clean].into_iter().flatten() {
+            std::mem::forget(sender);
         }
     }
+}
+
+/// This frame's pictures, as [`Sharing::frame`] takes them.
+#[derive(Clone, Copy)]
+pub(crate) struct Pictures<'a> {
+    /// The show's picture: after the post stage.
+    pub(crate) show: &'a Texture,
+    /// The clean feed's picture: before the post stage (D574).
+    pub(crate) clean: &'a Texture,
+    /// The show is blacked out: the show's picture goes out black.
+    pub(crate) black: bool,
 }
 
 /// What the operator asked of NDI, compared without allocating per frame.
@@ -85,12 +110,15 @@ pub(crate) struct Sharing {
     /// The Spout name last applied (`Some(None)` for off); `None` until the
     /// first apply, or after a context change.
     asked_spout: Option<Option<String>>,
+    /// The clean feed's name last applied, as for Spout (D574).
+    asked_clean: Option<Option<String>>,
     /// The NDI options last applied, as for Spout.
     asked_ndi: Option<Option<NdiAsk>>,
     size: Option<[i32; 2]>,
     /// The least time between two NDI frames, from the cap.
     interval: Option<Duration>,
     spout_note: String,
+    clean_note: String,
     ndi_note: String,
     stage_note: String,
     /// When NDI last packed a frame, for the cap.
@@ -103,6 +131,8 @@ pub(crate) struct Sharing {
     ndi_fps: f32,
     /// The Spout picture's size, for the status line.
     spout_size: Option<[u32; 2]>,
+    /// The clean feed's size, for the status line.
+    clean_size: Option<[u32; 2]>,
     status: String,
     /// What went wrong with Spout, and with NDI or the stage, for each row.
     notes: [String; 2],
@@ -114,10 +144,12 @@ impl Sharing {
         Self {
             ndi: None,
             asked_spout: None,
+            asked_clean: None,
             asked_ndi: None,
             size: None,
             interval: None,
             spout_note: String::new(),
+            clean_note: String::new(),
             ndi_note: String::new(),
             stage_note: String::new(),
             last_pack: None,
@@ -127,6 +159,7 @@ impl Sharing {
             counted_from: None,
             ndi_fps: 0.0,
             spout_size: None,
+            clean_size: None,
             status: String::new(),
             notes: [String::new(), String::new()],
         }
@@ -147,6 +180,7 @@ impl Sharing {
     /// the next apply opens it again on the new.
     pub(crate) fn context_changed(&mut self) {
         self.asked_spout = None;
+        self.asked_clean = None;
     }
 
     /// Applies `live`: opens a sender that was turned on or renamed, closes
@@ -165,6 +199,27 @@ impl Sharing {
             self.spout_size = None;
             gpu.spout = spout_wanted.and_then(|name| open_spout(name, &mut self.spout_note));
             self.asked_spout = Some(spout_wanted.map(str::to_owned));
+            changed = true;
+        }
+        let clean_wanted = live.spout_clean.then_some(live.spout_clean_name.as_str());
+        let clean_same = self
+            .asked_clean
+            .as_ref()
+            .is_some_and(|asked| asked.as_deref() == clean_wanted);
+        if !clean_same || !spout_same {
+            gpu.clean = None;
+            self.clean_note.clear();
+            self.clean_size = None;
+            gpu.clean = clean_wanted.and_then(|name| {
+                if spout_wanted.is_some_and(|main| main.trim() == name.trim()) {
+                    self.clean_note = format!(
+                        "the clean feed needs a name of its own; `{name}` is the main sender's"
+                    );
+                    return None;
+                }
+                open_spout(name, &mut self.clean_note)
+            });
+            self.asked_clean = Some(clean_wanted.map(str::to_owned));
             changed = true;
         }
         let ndi_same = self.asked_ndi.as_ref().is_some_and(|asked| match asked {
@@ -221,21 +276,27 @@ impl Sharing {
 
     /// Whether anything is being shared, so the frame can skip all of this.
     pub(crate) fn active(&self, gpu: &GpuShare) -> bool {
-        gpu.spout.is_some() || self.ndi.is_some()
+        gpu.spout.is_some() || gpu.clean.is_some() || self.ndi.is_some()
     }
 
-    /// Hands this frame's picture, `source`, to every open sender: black
-    /// instead when `black`. Returns whether the note or the status line
-    /// changed, so the app copies them to Settings only then.
+    /// Hands this frame's picture to every open sender: `pictures.show` (the
+    /// post stage's output), black instead when `pictures.black`, and
+    /// `pictures.clean` (before the post stage, never black) to the clean
+    /// feed. Returns whether the note or the status line changed, so the app
+    /// copies them to Settings only then.
     pub(crate) fn frame(
         &mut self,
         gpu: &mut GpuShare,
         gl: &Gl,
         caps: &Caps,
-        source: &Texture,
-        black: bool,
+        pictures: Pictures<'_>,
         now: Instant,
     ) -> bool {
+        let Pictures {
+            show: source,
+            clean: clean_source,
+            black,
+        } = pictures;
         if !self.active(gpu) {
             return false;
         }
@@ -267,8 +328,13 @@ impl Sharing {
             pixels,
         };
         if gpu.stage.is_none() && !gpu.stage_failed {
-            match ShareStage::new(gl, caps) {
-                Ok(stage) => gpu.stage = Some(stage),
+            match ShareStage::new(gl, caps)
+                .and_then(|main| ShareStage::new(gl, caps).map(|clean| (main, clean)))
+            {
+                Ok((stage, clean)) => {
+                    gpu.stage = Some(stage);
+                    gpu.clean_stage = Some(clean);
+                }
                 Err(error) => {
                     gpu.stage_failed = true;
                     self.stage_note = format!(
@@ -297,6 +363,24 @@ impl Sharing {
             let height = u32::try_from(texture.height).unwrap_or(0);
             spout.show_texture(SharedTexture::new(texture.id, width, height));
             self.spout_size = Some([width, height]);
+        }
+        if let Some(clean) = gpu.clean.as_mut() {
+            let want = Want {
+                size: self.size,
+                black: false,
+                texture: true,
+                pixels: false,
+            };
+            let texture = match gpu.clean_stage.as_mut() {
+                Some(stage) => stage.prepare(clean_source, want).unwrap_or_default(),
+                None => Some(clean_source.share()),
+            };
+            if let Some(texture) = texture {
+                let width = u32::try_from(texture.width).unwrap_or(0);
+                let height = u32::try_from(texture.height).unwrap_or(0);
+                clean.show_texture(SharedTexture::new(texture.id, width, height));
+                self.clean_size = Some([width, height]);
+            }
         }
         if let (Some(ndi), Some(stage)) = (self.ndi.as_mut(), gpu.stage.as_mut())
             && let Some((data, [width, height])) = stage.take_pixels()
@@ -334,6 +418,12 @@ impl Sharing {
             self.spout_note = format!("Spout stopped: {reason}");
             changed = true;
         }
+        if self.clean_note.is_empty()
+            && let Some(reason) = gpu.clean.as_ref().and_then(down_reason)
+        {
+            self.clean_note = format!("The clean feed stopped: {reason}");
+            changed = true;
+        }
         if self.ndi_note.is_empty()
             && let Some(reason) = self.ndi.as_ref().and_then(down_reason)
         {
@@ -346,16 +436,21 @@ impl Sharing {
         changed
     }
 
-    /// Rebuilds the two notes: Spout's, and NDI's with the stage's (which
-    /// only NDI cannot do without). Only on a change.
+    /// Rebuilds the two notes: Spout's with the clean feed's, and NDI's with
+    /// the stage's (which only NDI cannot do without). Only on a change.
     fn refresh_note(&mut self) {
-        let ndi = [&self.ndi_note, &self.stage_note]
-            .iter()
-            .filter(|part| !part.is_empty())
-            .map(|part| part.as_str())
-            .collect::<Vec<_>>()
-            .join(" ");
-        let notes = [self.spout_note.clone(), ndi];
+        let join = |parts: [&String; 2]| {
+            parts
+                .iter()
+                .filter(|part| !part.is_empty())
+                .map(|part| part.as_str())
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        let notes = [
+            join([&self.spout_note, &self.clean_note]),
+            join([&self.ndi_note, &self.stage_note]),
+        ];
         for (new, old) in notes.iter().zip(&self.notes) {
             if !new.is_empty() && new != old {
                 log::warn!("sharing: {new}");
@@ -367,13 +462,21 @@ impl Sharing {
     /// Rebuilds the status line; returns whether it changed. Twice a second
     /// at most, so its allocation is not a per-frame one.
     fn refresh_status(&mut self, gpu: &GpuShare) -> bool {
-        let mut parts = Vec::with_capacity(2);
+        let mut parts = Vec::with_capacity(3);
         if let Some(spout) = gpu.spout.as_ref()
             && spout.status() == Status::Live
         {
             parts.push(match self.spout_size {
                 Some([w, h]) => format!("Spout: `{}` live at {w}x{h}", spout.name()),
                 None => format!("Spout: `{}` waiting for the first frame", spout.name()),
+            });
+        }
+        if let Some(clean) = gpu.clean.as_ref()
+            && clean.status() == Status::Live
+        {
+            parts.push(match self.clean_size {
+                Some([w, h]) => format!("clean feed `{}` live at {w}x{h}", clean.name()),
+                None => format!("clean feed `{}` waiting for the first frame", clean.name()),
             });
         }
         if let Some(ndi) = self.ndi.as_ref()
@@ -412,6 +515,10 @@ pub(crate) fn apply_flags(cli: &crate::cli::Cli, sharing: &mut crate::ui::state:
     if let Some(name) = cli.spout.as_deref() {
         live.spout = true;
         name.clone_into(&mut live.spout_name);
+    }
+    if let Some(name) = cli.spout_clean.as_deref() {
+        live.spout_clean = true;
+        name.clone_into(&mut live.spout_clean_name);
     }
     if let Some(name) = cli.ndi.as_deref() {
         live.ndi = true;
@@ -519,6 +626,25 @@ mod tests {
             sharing.interval,
             Some(Duration::from_secs_f64(1.0 / 30.0)),
             "as the least time between frames"
+        );
+    }
+
+    #[test]
+    fn the_clean_feed_refuses_the_main_senders_name() {
+        let mut sharing = Sharing::new();
+        let mut gpu = GpuShare::default();
+        let live = SharingPref {
+            spout: true,
+            spout_clean: true,
+            spout_clean_name: SharingPref::default().spout_name,
+            ..SharingPref::default()
+        };
+        sharing.apply(&live, &mut gpu);
+        assert!(gpu.clean.is_none(), "no second sender of the same name");
+        assert!(
+            sharing.notes()[0].contains("name of its own"),
+            "and the Spout row says why: {:?}",
+            sharing.notes()
         );
     }
 

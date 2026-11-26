@@ -5554,27 +5554,35 @@ impl Running {
     /// Hands this frame's finished picture to the senders that are on
     /// (D573): the post stage's output when it ran, else the compositor's
     /// mix, else the scene's output, the same choice a hidden window's
-    /// screenshot makes, and black while the show is blacked out.
+    /// screenshot makes, and black while the show is blacked out. The clean
+    /// feed gets the picture before the post stage (D574).
     fn share_picture(&mut self, composited: bool) {
         let stack = &mut self.stack;
         if !self.share.active(&stack.share) {
             return;
         }
-        let source = if self.posted {
-            stack.post.output_texture()
-        } else if composited {
+        let clean = if composited {
             stack.compositor.output_texture()
         } else if let Some(session) = stack.session.as_ref() {
             session.player.output_texture()
         } else {
             return;
         };
+        let show = if self.posted {
+            stack.post.output_texture()
+        } else {
+            clean
+        };
+        let pictures = crate::output::Pictures {
+            show,
+            clean,
+            black: self.blackout,
+        };
         let changed = self.share.frame(
             &mut stack.share,
             stack.gfx.gl(),
             stack.gfx.caps(),
-            source,
-            self.blackout,
+            pictures,
             Instant::now(),
         );
         if changed {

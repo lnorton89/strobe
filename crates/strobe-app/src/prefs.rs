@@ -188,6 +188,11 @@ pub struct SharingPref {
     pub spout: bool,
     /// The name Spout receivers list.
     pub spout_name: String,
+    /// Publish a second Spout sender with the picture before the post stage,
+    /// never blacked out (D574).
+    pub spout_clean: bool,
+    /// The clean feed's name.
+    pub spout_clean_name: String,
     /// Send over NDI.
     pub ndi: bool,
     /// The name NDI receivers list (NDI prefixes the computer's name).
@@ -206,6 +211,8 @@ impl Default for SharingPref {
         Self {
             spout: false,
             spout_name: "Strobe".to_string(),
+            spout_clean: false,
+            spout_clean_name: "Strobe Clean".to_string(),
             ndi: false,
             ndi_name: "Strobe".to_string(),
             ndi_groups: String::new(),

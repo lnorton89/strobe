@@ -54,6 +54,7 @@
 
 mod probe;
 mod readback;
+mod share;
 
 use anyhow::{Context as _, Result, anyhow};
 use clap::{Parser, ValueEnum};
@@ -141,6 +142,12 @@ struct Cli {
     /// library; writes `readback.md` (C-04).
     #[arg(long)]
     readback: bool,
+    /// Time preparing a `--size` picture for Spout and NDI (the share
+    /// stage's scaled draw, blackout, the UYVY pack and its asynchronous
+    /// readback) against the first cut's synchronous readback, instead of
+    /// benchmarking the library; writes `share.md` (M-06, D573).
+    #[arg(long)]
+    share: bool,
     /// Probe the driver at a ladder of sizes (plus `--size`) instead of
     /// benchmarking: does it clear, draw into and read back a target, and
     /// what viewport does it keep. Writes `probe.md`. For a machine whose
@@ -318,6 +325,16 @@ fn run(
             Err(anyhow!(
                 "the driver dropped work at some size; see probe.md"
             ))
+        };
+    }
+    if cli.share {
+        let (report, passed) = share::run(gl, caps, context, size)?;
+        println!("{report}");
+        std::fs::write(cli.out.join("share.md"), &report)?;
+        return if passed {
+            Ok(())
+        } else {
+            Err(anyhow!("the share check failed; see share.md"))
         };
     }
     if cli.readback {

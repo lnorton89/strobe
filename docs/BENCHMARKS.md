@@ -65,6 +65,34 @@ GPUs.
 
 ## Results
 
+### 2026-11-26: sharing the picture (Spout and NDI), RX 580 (LIGHTNING)
+
+`cargo run --release -p strobe-bench -- --share --size WxH --context window
+--gl native` (D573). Each row prepares a still picture the way the app does
+for one kind of sender, 120 times. **CPU** is the call itself, which is what
+the frame thread pays. **Wall** adds a `glFinish`, so the GPU's share is
+counted too. The last row is the first cut's NDI path (D570), for
+comparison. The numbers are from the second of two runs; the first agreed
+within noise. An earlier run while another session was compiling gave noisy
+rows several times larger.
+
+| Path | 1280x720 CPU / max / wall (ms) | 1920x1080 CPU / max / wall (ms) |
+|---|---|---|
+| Spout at the picture's size (its own texture) | 0.000 / 0.001 / 0.000 | 0.000 / 0.001 / 0.000 |
+| Spout at a fixed size (one scaled draw) | 0.005 / 0.014 / 0.252 | 0.005 / 0.013 / 0.276 |
+| Blackout (one clear) | 0.002 / 0.011 / 0.132 | 0.002 / 0.003 / 0.097 |
+| NDI: UYVY pack on the GPU + asynchronous readback | 0.167 / 0.512 / 0.400 | 0.543 / 1.170 / 0.765 |
+| First cut: synchronous RGBA readback + flip | 2.540 / 8.318 / 2.540 | 5.832 / 45.089 / 5.832 |
+
+- At 1080p the new NDI path costs the frame about a tenth of the old one on
+  average. Its worst case is 1.2 ms against 45 ms: the synchronous read
+  waited for the whole GPU queue.
+- Paced at 60 Hz with no `glFinish`, as the show runs, the first NDI picture
+  arrives on frame 3, and every frame after it delivers one. No read was
+  dropped; each picture is two frames old.
+- Still wanted: the same on the T480 (backlog M-06's acceptance), where the
+  bus and the GPU are much slower.
+
 ### 2026-10-16: the presented rate against the GPU mean, venue mini PC (Vega 3), Task M16
 
 In the app, not the bench: `13-chromatic-rise` held fullscreen at 1920x1080,

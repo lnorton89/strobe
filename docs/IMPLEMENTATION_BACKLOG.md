@@ -366,7 +366,7 @@
 - **Acceptance:** deterministic tests for no audio, low confidence, track boundary and manual override; no double transition with a cue transition already in progress.
 
 ### M-06 NDI and Spout output
-- **Status:** **Built to the surveyed tools' feature set and verified publishing through Spout (D570, D571, D572, D573), 2026-11-26. No receiver application has shown the picture yet, and NDI has not sent a frame.**
+- **Status:** **Built to the surveyed tools' feature set, with a clean Spout feed, and verified publishing through Spout (D570 to D574), 2026-11-26. No receiver application has shown the picture yet, and NDI has not sent a frame.**
   - [research/m06-ndi-spout.md](research/m06-ndi-spout.md) covers the SDK and runtime story, licensing, pixel formats and costs. It also holds a survey of how Synesthesia, Resolume, TouchDesigner, MadMapper, OBS, vMix and Millumin expose sharing.
   - **Built:**
     - Settings > Output > Sharing, saved: Spout and NDI on or off, editable names, NDI groups and a frame-rate cap, and a shared size (the picture's own, or 720p to 4K). The same options exist as one-run flags: `--spout`, `--ndi`, `--ndi-groups`, `--ndi-fps` and `--share-size`.
@@ -375,16 +375,18 @@
     - Spout shares the picture's own texture when it can. It creates the sender on the first frame, uses `UpdateSender` on a resize, and calls `Release` on drop.
     - A status line shows names, size, NDI receivers and rate. Each sender's failure is said once on its own row.
     - NDI's licence lines and links are beside the choice and in About.
+    - A clean feed: a second Spout sender with the picture before the post stage, never blacked out, under its own name (D574, `--spout-clean`).
+    - `strobe-bench --share` times every path. On the RX 580 at 1080p the NDI path costs the frame 0.54 ms of CPU, against the first cut's 5.8 ms (45 ms worst), and is paced without a drop.
   - **Verified:**
     - The GPU packing matches the BT.709 reference byte for byte in both dialects on Mesa (`render.rs`).
-    - `--spout StrobeCheck --share-size 1280x720` is listed at 1280x720 by an independent receiver-side probe on LIGHTNING, and is gone from the list after a clean exit.
+    - `--spout StrobeCheck --share-size 1280x720` is listed at 1280x720 by an independent receiver-side probe on LIGHTNING, and is gone from the list after a clean exit. So are the main sender and the clean feed side by side.
     - `--ndi` without a runtime gives one line with the NDI Tools link, and the show runs on.
   - **Still not verified:**
     - A receiver application (OBS, Resolume, Studio Monitor) showing the picture.
     - NDI on a machine with its runtime.
-    - The frame cost on the T480.
+    - The frame cost on the T480 (`strobe-bench --share` there).
   - **Left, in demand order:**
-    - A second clean feed beside the final one (issue #116 asks for several named senders).
+    - More than two senders, or a clean NDI stream: a list of senders, each with a source, a protocol and a name (D574).
     - Spout and NDI input as a media source (M-04's family, its own item).
     - NDI audio.
     - Alpha (D248).

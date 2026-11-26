@@ -228,6 +228,10 @@ Scenes react to sound through the default **recording** device.
   with your projector. **Shared size** is the picture's own, which follows
   the render scale, or a fixed size (720p to 4K) that a mixer input can rely
   on whatever the scene renders at.
+- **Clean feed.** A second Spout sender, with a name of its own, carries the
+  scene before the output's look and mirrors, and blackout leaves it alone.
+  Use it when a mixer wants the raw picture beside the show, or needs to
+  keep a picture while the projector is dark.
 - **NDI options.**
   - **Frame rate** caps how many frames a second go out (25 to 60, or every
     frame); a lower rate eases a busy network.
@@ -239,7 +243,7 @@ Scenes react to sound through the default **recording** device.
   stays as you left it):
 
   ```text
-  strobe --spout "Strobe" --ndi "Strobe" --ndi-fps 30 --ndi-groups "Stage" --share-size 1920x1080
+  strobe --spout "Strobe" --spout-clean "Strobe Clean" --ndi "Strobe" --ndi-fps 30 --ndi-groups "Stage" --share-size 1920x1080
   ```
 
   `--share-size picture` follows the picture.

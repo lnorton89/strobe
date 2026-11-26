@@ -65,8 +65,11 @@ which backend proved a claim.
   Linux build. Verified on LIGHTNING: Spout publishes at a fixed 1280x720
   and is released on exit, and the UYVY packing matches its reference on
   Mesa. **Left:** a receiver application on screen, NDI with a runtime, the
-  T480's frame cost, then a second clean feed and Spout or NDI input
-  (M-06).
+  T480's frame cost, and Spout or NDI input (M-06). A clean Spout feed, the
+  picture before the post stage and never blacked out, is a second sender
+  under its own name (D574). `strobe-bench --share` measures each path: at
+  1080p on the RX 580 the NDI path costs the frame 0.54 ms of CPU, against
+  5.8 ms for the first cut.
 
 - **The library's scenes are prerendered, and launch opens on the Library
   (2026-11-03, D542, D543):** at launch and on a rescan every scene is

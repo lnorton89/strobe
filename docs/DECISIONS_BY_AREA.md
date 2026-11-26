@@ -481,7 +481,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## Not tied to one crate
 
-232 decision(s).
+233 decision(s).
 
 - [D1](decisions/D1.md): native OpenGL (glow + glutin), not wgpu
 - [D2](decisions/D2.md): ANGLE as the fallback context, not native-only
@@ -715,3 +715,4 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D565](decisions/D565.md): a shared scene's link shows a frame of the scene, sent by the browser that shares it
 - [D566](decisions/D566.md): local time comes from jiff, not chrono
 - [D572](decisions/D572.md): The Spout sender calls the 2.007 library's vtable, not mangled exports
+- [D574](decisions/D574.md): A second Spout sender carries a clean feed, before the post stage and never blacked out

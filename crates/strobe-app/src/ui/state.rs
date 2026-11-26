@@ -256,6 +256,8 @@ pub struct SharingUi {
     pub live: crate::prefs::SharingPref,
     /// The Spout name as it is being typed, until Enter or a click away.
     pub spout_draft: String,
+    /// The clean feed's name as it is being typed.
+    pub clean_draft: String,
     /// The NDI name as it is being typed.
     pub ndi_draft: String,
     /// The NDI groups as they are being typed.
@@ -290,6 +292,7 @@ impl SharingUi {
     /// The text fields show what is live again.
     pub fn reset_drafts(&mut self) {
         self.spout_draft.clone_from(&self.live.spout_name);
+        self.clean_draft.clone_from(&self.live.spout_clean_name);
         self.ndi_draft.clone_from(&self.live.ndi_name);
         self.groups_draft.clone_from(&self.live.ndi_groups);
     }

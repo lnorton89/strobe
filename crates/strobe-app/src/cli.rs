@@ -137,6 +137,11 @@ pub struct Cli {
     /// only: Settings > Output > Sharing is what is saved.
     #[arg(long, value_name = "NAME")]
     pub spout: Option<String>,
+    /// Also publish a clean feed through Spout under this name: the picture
+    /// before the output's look and mirrors, never blacked out (D574). For
+    /// this run only.
+    #[arg(long, value_name = "NAME")]
+    pub spout_clean: Option<String>,
     /// Share the output over the network through NDI under this name, which
     /// a receiver such as NDI Studio Monitor lists (D570, D573). For this run
     /// only. Needs the NDI 6 runtime, from NDI Tools (https://ndi.video).
