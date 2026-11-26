@@ -127,6 +127,14 @@ reported, delete its object; the link then says there is no such scene:
 npx wrangler@4.156.0 r2 object delete strobe-scenes/scenes/<id>.json --remote
 ```
 
+Share also sends a frame of the scene, which the link shows where it is
+pasted (D565). It is stored beside the scene as `cards/<id>.jpg`; delete it
+with the scene:
+
+```bash
+npx wrangler@4.156.0 r2 object delete strobe-scenes/cards/<id>.jpg --remote
+```
+
 (Run it with the same credentials as the deploy, for example by setting
 `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` in that shell only.)
 
