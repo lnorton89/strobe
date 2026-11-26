@@ -144,7 +144,7 @@ pub struct Cli {
     pub spout_clean: Option<String>,
     /// Share the output over the network through NDI under this name, which
     /// a receiver such as NDI Studio Monitor lists (D570, D573). For this run
-    /// only. Needs the NDI 6 runtime, from NDI Tools (https://ndi.video).
+    /// only. Needs the NDI 6 runtime, from NDI Tools at ndi.video/tools.
     #[arg(long, value_name = "NAME")]
     pub ndi: Option<String>,
     /// The NDI groups to send in, comma-separated (D573). For this run only.

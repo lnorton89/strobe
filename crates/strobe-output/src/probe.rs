@@ -13,7 +13,7 @@
 //! both features free to compile, and it moves the bad news to the moment a
 //! person turns one on. These two probes turn that news into a sentence
 //! before a sender is created: "NDI output needs the NDI 6 runtime; install
-//! NDI Tools from https://ndi.video" reads better than an SDK error from
+//! NDI Tools from <https://ndi.video>" reads better than an SDK error from
 //! inside a show.
 //!
 //! The search order is the loader's own where it can be: the program's own
