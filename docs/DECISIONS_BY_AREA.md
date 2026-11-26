@@ -397,7 +397,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## xtask
 
-30 decision(s).
+31 decision(s).
 
 - [D50](decisions/D50.md): repository tooling is an `xtask` crate, not examples or scripts
 - [D63](decisions/D63.md): the Windows cross-check from Linux now excludes `strobe-app` too
@@ -429,6 +429,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D548](decisions/D548.md): a release waits in draft for the owner's approval, so its own archives are checked on a GPU first
 - [D551](decisions/D551.md): `--diagnose` raises its box only when nothing reads its output, so a harness run ends
 - [D552](decisions/D552.md): the website and its wasm engine are built and played in CI, as a lane of their own
+- [D569](decisions/D569.md): the site's `npm ci` skips `onnxruntime-node`'s CUDA download
 
 ## CI and releases
 
