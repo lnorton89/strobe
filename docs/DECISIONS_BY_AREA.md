@@ -31,7 +31,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-app
 
-49 decision(s).
+50 decision(s).
 
 - [D42](decisions/D42.md): release builds keep line tables and are not stripped
 - [D55](decisions/D55.md): macOS CI is two-tier until strobe-gfx has a CGL context
