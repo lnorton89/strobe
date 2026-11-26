@@ -21,7 +21,7 @@ The release zip carries these next to the program. Their notices are in `LICENSE
 
 ## Crates
 
-Every crate compiled into `strobe.exe` (`strobe-app` for `x86_64-pc-windows-msvc`), 258 in all, with the licence its authors published it under. The release zip's `THIRD-PARTY-NOTICES.txt` has each one's version and full licence text.
+Every crate compiled into `strobe.exe` (`strobe-app` for `x86_64-pc-windows-msvc`), 261 in all, with the licence its authors published it under. The release zip's `THIRD-PARTY-NOTICES.txt` has each one's version and full licence text.
 
 | Crate | Licence | Source |
 |---|---|---|
@@ -47,7 +47,6 @@ Every crate compiled into `strobe.exe` (`strobe-app` for `x86_64-pc-windows-msvc
 | byteorder-lite | Unlicense OR MIT | https://github.com/image-rs/byteorder-lite |
 | bytes | MIT | https://github.com/tokio-rs/bytes |
 | cfg-if | MIT OR Apache-2.0 | https://github.com/rust-lang/cfg-if |
-| chrono | MIT OR Apache-2.0 | https://github.com/chronotope/chrono |
 | clap | MIT OR Apache-2.0 | https://github.com/clap-rs/clap |
 | clap_builder | MIT OR Apache-2.0 | https://github.com/clap-rs/clap |
 | clap_derive | MIT OR Apache-2.0 | https://github.com/clap-rs/clap |
@@ -129,6 +128,10 @@ Every crate compiled into `strobe.exe` (`strobe-app` for `x86_64-pc-windows-msvc
 | is_terminal_polyfill | MIT OR Apache-2.0 | https://github.com/polyfill-rs/is_terminal_polyfill |
 | itertools | MIT OR Apache-2.0 | https://github.com/rust-itertools/itertools |
 | itoa | MIT OR Apache-2.0 | https://github.com/dtolnay/itoa |
+| jiff | Unlicense OR MIT | https://github.com/BurntSushi/jiff |
+| jiff-core | Unlicense OR MIT | https://github.com/BurntSushi/jiff |
+| jiff-tzdb | Unlicense OR MIT | https://github.com/BurntSushi/jiff |
+| jiff-tzdb-platform | Unlicense OR MIT | https://github.com/BurntSushi/jiff |
 | kurbo | Apache-2.0 OR MIT | https://github.com/linebender/kurbo |
 | libc | MIT OR Apache-2.0 | https://github.com/rust-lang/libc |
 | libloading | ISC | https://github.com/nagisa/rust_libloading |

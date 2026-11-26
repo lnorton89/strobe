@@ -59,7 +59,7 @@ configuration error. Installing it as a service is
 
 `md-5` for the authentication digest (the same RustCrypto `digest` 0.11 as
 `sha1` and `sha2` in the tree, so it adds one crate), `serde_json` for the
-config and the API, `sha2` for the page's session cookie, `chrono` for the log's local
+config and the API, `sha2` for the page's session cookie, `jiff` for the log's local
 time, `clap` for the CLI, and `strobe-diag` for the data directory and the
 service's log. No HTTP framework, no async runtime.
 

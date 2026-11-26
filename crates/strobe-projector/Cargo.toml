@@ -28,7 +28,7 @@ md-5.workspace = true
 # The page's sign-in cookie is made from its password (D516).
 sha2.workspace = true
 # The audit log's local timestamps.
-chrono.workspace = true
+jiff.workspace = true
 clap.workspace = true
 
 [dev-dependencies]
