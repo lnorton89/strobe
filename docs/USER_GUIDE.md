@@ -218,8 +218,8 @@ Scenes react to sound through the default **recording** device.
   is under *Output (meta)* in Controls (the page or the panel's tab). It
   carries over from scene to scene.
 - **Sharing the picture with another program.** Settings > Output > Sharing
-  turns on **Spout** (Windows: Resolume, OBS, TouchDesigner, MadMapper,
-  Notch and anything else that reads Spout) or **NDI** (the network: OBS,
+  turns on **Spout** (Windows: Resolume, OBS with the Spout plugin,
+  TouchDesigner, MadMapper, Notch and anything else that reads Spout) or **NDI** (the network: OBS,
   vMix, Resolume or NDI Studio Monitor on another computer). Each has a name,
   which is what a receiver lists; type a new one and press Enter. The choice
   is saved.

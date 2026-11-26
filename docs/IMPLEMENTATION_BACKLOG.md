@@ -366,7 +366,7 @@
 - **Acceptance:** deterministic tests for no audio, low confidence, track boundary and manual override; no double transition with a cue transition already in progress.
 
 ### M-06 NDI and Spout output
-- **Status:** **Built to the surveyed tools' feature set, with a clean Spout feed, and verified publishing through Spout (D570 to D574), 2026-11-26. NDI and Spout verified end to end on LIGHTNING by independent receivers; no third-party application (OBS, Resolume) has shown the picture yet.**
+- **Status:** **Built to the surveyed tools' feature set, with a clean Spout feed, and verified publishing through Spout (D570 to D574), 2026-11-26. NDI and Spout verified end to end on LIGHTNING, in OBS Studio as well as by independent receivers.**
   - [research/m06-ndi-spout.md](research/m06-ndi-spout.md) covers the SDK and runtime story, licensing, pixel formats and costs. It also holds a survey of how Synesthesia, Resolume, TouchDesigner, MadMapper, OBS, vMix and Millumin expose sharing.
   - **Built:**
     - Settings > Output > Sharing, saved: Spout and NDI on or off, editable names, NDI groups and a frame-rate cap, and a shared size (the picture's own, or 720p to 4K). The same options exist as one-run flags: `--spout`, `--ndi`, `--ndi-groups`, `--ndi-fps` and `--share-size`.
@@ -387,9 +387,10 @@
     - An NDI stream in the group `stage` is hidden from a receiver in the default group.
     - With no scene playing (an empty library), an NDI receiver gets black frames; before this it got none.
     - After a clean exit, neither the Spout senders nor the NDI source is listed.
+    - OBS Studio 33.0.1 with the Spout plugin (win-spout 1.15.0) and DistroAV 6.2.2 shows all three feeds at once: Spout main, Spout clean and NDI, upright. On a still test card (75% colour bars over an eight-step grey ramp), OBS's NDI picture matches its Spout picture within one level on every patch, with exact values (191, 0 and 255), so the UYVY pack's BT.709 limited range decodes correctly in a third-party receiver. Blackout over OSC turns the main Spout and NDI feeds black in OBS and leaves the clean feed; `/strobe/meta/invert` inverts the main and NDI feeds and not the clean one.
     - The NDI frame-rate cap is tested on a synthetic clock (`output::tests`): 30 fps on 60 Hz takes 30, on 75 Hz 38, on 144 Hz 36.
   - **Still not verified:**
-    - A third-party receiver application (OBS, Resolume) showing the picture.
+    - Resolume, TouchDesigner or MadMapper as receivers (OBS is checked).
     - NDI to a second machine over the network, and for 30 minutes.
     - The NDI frame-rate cap's delivered rate on a quiet machine. LIGHTNING was compiling other projects at 100% CPU during the checks, so the rates measured then (5 to 17 fps) say nothing about the cap.
     - The frame cost on the T480 (`strobe-bench --share` there).
@@ -401,7 +402,7 @@
     - 16-bit output.
     - NDI delay, failover and tally.
     - OSC control of sharing.
-- **Work:** measure, then attach receivers. NDI Tools is now installed on LIGHTNING (2026-11-26), so NDI is checked there, and a Spout SDK receiver checks Spout; a third-party application (OBS or Resolume) is still needed on screen.
+- **Work:** measure, then attach receivers. NDI Tools is now installed on LIGHTNING (2026-11-26), so NDI is checked there, and a Spout SDK receiver checks Spout; OBS (with win-spout and DistroAV) shows both on screen.
 - **Acceptance:**
   - `strobe-bench` with the output off and on, at 1280x720 and 1920x1080, on the T480.
   - A 30-minute NDI stream to a second machine, and a Spout receiver on the same machine.
