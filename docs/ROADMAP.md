@@ -60,10 +60,11 @@ which backend proved a claim.
   the texture, and the app taps it after the post stage from
   `strobe_app::output`, with `--spout`/`--ndi` and Settings > Output.
   **Left:** the full-size readback ring, `Alpha Channel`, and the
-  measurement (M-06). Not verifiable here yet: the only Spout library on
-  this machine is 32-bit and refused by the 64-bit loader, no x64 NDI
-  runtime is installed, and a Spout receiver is needed to see the picture
-  arrive.
+  measurement (M-06). Spout was verified publishing on 2026-11-26: with the
+  64-bit 2.007.018 library beside the executable, the sender is listed at
+  960x540 BGRA and Spout measures 75 fps arriving (D572). Still open: NDI has
+  no runtime installed on this machine to run against, and no receiver
+  application has been attached to see the picture on the other end.
 
 - **The library's scenes are prerendered, and launch opens on the Library
   (2026-11-03, D542, D543):** at launch and on a rescan every scene is

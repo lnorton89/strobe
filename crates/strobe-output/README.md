@@ -65,16 +65,19 @@ Open work for this crate is tracked in
 [`IMPLEMENTATION_BACKLOG.md`](../../docs/IMPLEMENTATION_BACKLOG.md) under the
 IDs given here; a gap with no ID is by design, with its decision named.
 
-- The Spout sender shares the renderer's texture with nothing read back, by
-  calling the installed `SpoutLibrary.dll`'s mangled ABI (D571): it needs a
-  **64-bit** Spout library (a 32-bit one, such as the copy inside Synesthesia,
-  is refused by name) and it needs Windows (backlog M-06).
+- The Spout sender shares the renderer's texture with nothing read back,
+  calling the installed `SpoutLibrary.dll`'s vtable (D572): it needs a
+  **64-bit** Spout library — the `Spout-SDK-binaries` asset of the Spout
+  2.007 release, or a 64-bit application's copy; a 32-bit one, such as the
+  copy inside Synesthesia, is refused by name — and it needs Windows (backlog
+  M-06). Verified on the development machine: a live 960x540 BGRA sender that
+  Spout measured at 75 fps.
 - The NDI sender is behind the `ndi` feature and is built with the app; it
   needs the NDI 6 runtime at run time and has not been run, because no x64
   runtime is installed on the machine this was built on (backlog M-06).
-- No receiver has been watched: Spout was exercised only as far as loading the
-  library and reporting why it refused this machine's copy, and NDI not at
-  all (backlog M-06).
+- No receiver application has been attached: Spout was verified as publishing
+  (the library lists the sender and measures its frame rate), not as seen on
+  another program's screen; NDI has not run at all (backlog M-06).
 - The NDI path pays a synchronous readback per frame: the ring is not built
   and the cost is the number backlog M-06's acceptance test still wants
   (backlog M-06).

@@ -217,6 +217,24 @@ Scenes react to sound through the default **recording** device.
 - The output's look (brightness, hue, mirror, colour limits and the like)
   is under *Output (meta)* in Controls (the page or the panel's tab). It
   carries over from scene to scene.
+- **Sharing the picture with another program.** Settings > Output > Sharing
+  turns on **Spout** (Windows: Resolume, OBS, TouchDesigner, Notch and
+  anything else that reads Spout) or **NDI** (the network, for another
+  computer), each with its own name a receiver lists. The command line does
+  the same for a launcher: `strobe --spout "Strobe"`, `strobe --ndi
+  "Strobe"`. What is shared is the finished picture at its own size, after
+  the output's look and mirrors; Blackout does not stop it, so a receiver
+  keeps its feed while your screens go dark.
+- **Spout needs its library.** Put a **64-bit** `SpoutLibrary.dll` beside
+  `strobe.exe` (or anywhere on the `PATH`). The one to use is the
+  `Spout-SDK-binaries` download from the Spout 2.007 release at
+  [github.com/leadedge/Spout2](https://github.com/leadedge/Spout2/releases)
+  — its `MT/bin` folder needs no Visual C++ runtime. A 32-bit copy (some
+  applications ship one) cannot be loaded by the 64-bit build, and
+  Settings says so if it finds one.
+- **NDI needs its runtime**, installed from [ndi.video](https://ndi.video/)
+  (NDI Tools); Strobe loads it when it starts and says what is missing
+  otherwise.
 
 ## Media behind a scene
 
