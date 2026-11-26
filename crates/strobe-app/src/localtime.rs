@@ -3,18 +3,20 @@
 // Description:  Local wall-clock time for `strobe_Date` (Shadertoy's iDate):
 //               a cached UTC offset plus the system clock, no allocation.
 //
-// Dependencies: chrono (the platform's time-zone lookup); strobe-scene (date)
+// Dependencies: jiff (the platform's time-zone lookup); strobe-scene (date)
 // ============================================================================
 
 //! Local time for `strobe_Date`.
 //!
 //! Shadertoy's `iDate` is the **local** time of the person watching, and a
 //! shader that draws a clock shows it. The standard library has no time
-//! zone support, so the offset comes from `chrono`'s `Local`, which asks
-//! the operating system (the time-zone calls on Windows; `TZ` and
-//! `/etc/localtime` on Unix). `chrono` is used for that one question only;
-//! the calendar arithmetic is `strobe_scene::date`, which the renderer
-//! already tests.
+//! zone support, so the offset comes from `jiff`'s system time zone, which
+//! asks the operating system (the zone's name from Windows, looked up in the
+//! database `jiff` bundles there; `TZ` and `/etc/localtime` on Unix). `jiff`
+//! is used for that one question only (D566); the calendar arithmetic is
+//! `strobe_scene::date`, which the renderer already tests. A zone that
+//! cannot be found reads as UTC, and a clock `jiff` cannot represent reads
+//! as offset 0.
 //!
 //! ## Cost
 //!
@@ -77,8 +79,10 @@ impl LocalDate {
 
 /// The platform's current UTC offset in seconds.
 fn system_offset_seconds() -> i32 {
-    use chrono::Offset as _;
-    chrono::Local::now().offset().fix().local_minus_utc()
+    let Ok(now) = jiff::Timestamp::try_from(SystemTime::now()) else {
+        return 0;
+    };
+    jiff::tz::TimeZone::system().to_offset(now).seconds()
 }
 
 #[cfg(test)]
