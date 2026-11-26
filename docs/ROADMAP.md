@@ -64,8 +64,10 @@ which backend proved a claim.
   when either toggled, broken UI strings, and a manifest that broke the
   Linux build. Verified on LIGHTNING: Spout publishes at a fixed 1280x720
   and is released on exit, and the UYVY packing matches its reference on
-  Mesa. **Left:** a receiver application on screen, NDI with a runtime, the
-  T480's frame cost, and Spout or NDI input (M-06). A clean Spout feed, the
+  Mesa. NDI was then verified end to end with NDI 6 Tools installed: a
+  receiver took 1280x720 at the show's 56 fps, first frame 0.43 s after
+  connecting. **Left:** a Spout receiver application on screen, NDI to a
+  second machine, the T480's frame cost, and Spout or NDI input (M-06). A clean Spout feed, the
   picture before the post stage and never blacked out, is a second sender
   under its own name (D574). `strobe-bench --share` measures each path: at
   1080p on the RX 580 the NDI path costs the frame 0.54 ms of CPU, against
