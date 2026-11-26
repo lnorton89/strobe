@@ -29,7 +29,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-app
 
-48 decision(s).
+49 decision(s).
 
 - [D42](decisions/D42.md): release builds keep line tables and are not stripped
 - [D55](decisions/D55.md): macOS CI is two-tier until strobe-gfx has a CGL context
@@ -79,6 +79,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D551](decisions/D551.md): `--diagnose` raises its box only when nothing reads its output, so a harness run ends
 - [D553](decisions/D553.md): Shadertoy cube-map inputs become scene cube maps, the keyboard is 256x3 with every key up, and the Needs-work bin is closed
 - [D567](decisions/D567.md): a desktop controller can watch the host's frame timing live, one sample a second, without the picture stream
+- [D568](decisions/D568.md): cargo-deny ignores RUSTSEC-2026-0543, `chrono` unmaintained, until its two calls move
 
 ## strobe-audio
 
@@ -265,12 +266,13 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-projector
 
-4 decision(s).
+5 decision(s).
 
 - [D502](decisions/D502.md): projector power is a Strobe crate, `strobe-projector`, used from Settings and as a headless service
 - [D517](decisions/D517.md): the remote and projector pages are installable web apps in the website's design; narrows D258
 - [D518](decisions/D518.md): the projector service runs as the show's user from a folder they own, and updates at logon; reverses D502's SYSTEM task
 - [D539](decisions/D539.md): property tests over untrusted input, weekly machete and coverage, and the decisions indexed by crate
+- [D568](decisions/D568.md): cargo-deny ignores RUSTSEC-2026-0543, `chrono` unmaintained, until its two calls move
 
 ## strobe-remote
 
