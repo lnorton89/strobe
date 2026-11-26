@@ -32,6 +32,7 @@ cargo xtask changelog [--check | --release vX.Y.Z]       # CHANGELOG.md is gener
 cargo xtask bench -- --size 1280x720                      # strobe-bench in release; args forwarded
 cargo xtask corpus -- --library <dir>                     # load+compile+render every scene (scripts too), both dialects
 cargo xtask symbolicate <crash.dmp>                       # minidump -> stack with function names and file:line
+cargo run --profile release-fast -p strobe-forge -- check <scene> --reference <photo>   # frames, gates, timing, controls (D562)
 cargo xtask brand [--check]                               # icon PNGs + .ico from assets/brand/*.svg
 cargo xtask credits [--check]                             # THIRD_PARTY.md (About's credits) from git + Cargo.lock (D491)
 cargo xtask decisions [--check]                           # docs/DECISIONS_BY_AREA.md, the decisions by crate (D539)
@@ -41,6 +42,7 @@ cargo test --workspace                                    # everything
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo fmt --all -- --check
 cargo clippy -p strobe-io --no-default-features --all-targets -- -D warnings   # Linux; the build with MIDI off
+cargo clippy -p strobe-forge --no-default-features --all-targets -- -D warnings  # the forge without its LLM client
 cargo clippy -p strobe-web --target wasm32-unknown-unknown -- -D warnings      # Linux; the browser engine (D544)
 cargo clippy --workspace --exclude strobe-script --exclude strobe-app --exclude strobe-shadertoy --all-targets --all-features --target x86_64-pc-windows-msvc -- -D warnings
 cargo clippy -p strobe-shadertoy --no-default-features --all-targets --target x86_64-pc-windows-msvc -- -D warnings
