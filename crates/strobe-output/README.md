@@ -94,8 +94,8 @@ IDs given here; a gap with no ID is by design, with its decision named.
   is later work (backlog M-06).
 - Spout input is verified end to end on the development machine (Strobe to
   Strobe, upright and exact, lost and back), and so is NDI input with NDI 6
-  Tools installed; no third-party sender has been the source yet (backlog
-  M-07).
+  Tools installed, and from OBS (DistroAV) as a third-party NDI sender; no
+  third-party Spout sender has been the source yet (backlog M-07).
 - Spout input reads the picture back on the capture thread and the app
   uploads it, as a camera's; the zero-copy `ReceiveTexture` path is not
   taken until the T480 measures that cost (backlog M-07).

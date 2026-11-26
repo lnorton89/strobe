@@ -286,8 +286,8 @@ NDI source.
   once, and comes back by itself when it starts again. Spout needs the
   64-bit `SpoutLibrary.dll`, as Spout output does; NDI needs the NDI 6
   runtime from NDI Tools ([ndi.video/tools](https://ndi.video/tools/)).
-  Both have been tried Strobe to Strobe; please report how other apps'
-  feeds behave.
+  Both have been tried Strobe to Strobe, and NDI from OBS; please report
+  how other apps' feeds behave.
 - A playlist cue can name its own media, and that wins for the cue.
 - Very long sequences are shrunk to fit 192 MiB of memory rather than cut
   short.

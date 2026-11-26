@@ -758,9 +758,10 @@ they apply, and explicit supported, degraded or unsupported claims.
   NDI, the same way: `--list-ndi` lists `LIGHTNING (StrobeNdiCheck)`; the received picture is upright and exact within two levels after NDI's 4:2:2 round trip (marker 255,255,191; corners (2,2,191), (254,1,191), (254,252,191)), with no false "not found" while discovery answered; killing the sender says "closed" once and reads black, and the retries that follow, while NDI still lists the stale name, say nothing more.
   Tests: `strobe_scene::live`, `strobe_capture::convert`,
   `strobe-gfx/tests/live.rs` (both kinds, both dialects),
-  `strobe_app::live` and `strobe_app::share_input`. **Acceptance, still
-  open:** a third-party sender
-  (Resolume, TouchDesigner, OBS) as the source; the Media row's Spout and
+  `strobe_app::live` and `strobe_app::share_input`.
+  Third party: OBS Studio 33 with DistroAV 6.2.2 as a third-party NDI sender: Strobe sent the gradient as Spout `StrobeMain`, OBS's saved scene showed it in its top-left quarter, and DistroAV's main output re-sent the program as `LIGHTNING (OBS PGM)`; a second Strobe received that through `--media "ndi:LIGHTNING (OBS PGM)"` upright, with the quarter exact within two levels (marker 255,255,191; quarter corners (2,2,191), (254,2,191), (254,251,191)) and the rest of OBS's canvas black. **Acceptance, still
+  open:** a third-party Spout sender
+  (OBS's Spout filter, Resolume, TouchDesigner) as the source; the Media row's Spout and
   NDI buttons clicked on screen; the capture-thread copy's cost on the
   T480.
 - [x] Load cubemaps, and report missing or invalid assets without

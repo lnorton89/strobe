@@ -82,7 +82,8 @@ which backend proved a claim.
   black when lost), with one upload a frame into one reused texture and
   `syn_MediaType` 3. An idle sender keeps its last picture. Verified on
   LIGHTNING Strobe to Strobe over Spout and over NDI: upright and exact,
-  lost said once. **Left:** a third-party sender as the source,
+  lost said once, and NDI from OBS (DistroAV) as a third-party sender.
+  **Left:** a third-party Spout sender as the source,
   the T480's cost of the capture-thread copy, and the Media Overlay (C-01).
 
 - **The library's scenes are prerendered, and launch opens on the Library

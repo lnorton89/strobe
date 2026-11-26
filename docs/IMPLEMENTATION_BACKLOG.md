@@ -410,16 +410,17 @@
   - A flat-memory soak.
 
 ### M-07 Spout and NDI input
-- **Status:** **Built (D575), 2026-11-26; Spout and NDI verified on LIGHTNING, Strobe to Strobe.** The input half of [lnorton89/strobe#116](https://github.com/lnorton89/strobe/issues/116), placed in M-04's family by the M-06 research page.
+- **Status:** **Built (D575), 2026-11-26; Spout and NDI verified on LIGHTNING, Strobe to Strobe, and NDI from OBS.** The input half of [lnorton89/strobe#116](https://github.com/lnorton89/strobe/issues/116), placed in M-04's family by the M-06 research page.
   - **Built:**
     - A Spout sender is the media choice `spout:<name>`, an NDI source `ndi:<name>` (`strobe_scene::live`), everywhere a media choice is a path: the Inspector's Media row (Spout, NDI, beside Camera, each listing on its own thread), `--media`, a cue, a preset. `--list-spout` and `--list-ndi` print the names.
     - Both run on `strobe-capture`'s supervisor as two more backends (`strobe_app::share_input`, over `strobe-output`'s `SpoutReceiver` and `NdiReceiver`): watchdog, reconnect by name, a failure said once and black with type 0, retirement when unshown, one capture shared by every player.
     - One upload a frame into one reused texture, `syn_MediaType` 3 (Q22), no allocation or driver query unless the size changes.
     - Spout reads on the capture thread with Spout's own hidden GL context; NDI asks for RGBX/RGBA. An idle sender keeps its last picture; no first picture in 3 s, a closed sender or a disconnected source fails at once. Failure actions are worded for each kind.
   - **Verified (LIGHTNING, Windows 10, RX 580):** Strobe sending a known gradient through `--spout`, a second instance receiving it: listed; upright and exact with type 3; killing the sender said once and black; starting the receiver first said once, then the picture by itself when the sender starts. The same over NDI with NDI 6 Tools: `--list-ndi` lists `LIGHTNING (StrobeNdiCheck)`; the received picture is upright and exact within two levels after NDI's 4:2:2 round trip (marker 255,255,191; corners (2,2,191), (254,1,191), (254,252,191)), with no false "not found" while discovery answered; killing the sender says "closed" once and reads black, and the retries that follow, while NDI still lists the stale name, say nothing more.
-  - **Not verified:** a third-party sender (Resolume, TouchDesigner, OBS) as the source; the Media row's buttons clicked on screen; the capture-thread copy's cost on the T480.
+  - **Verified, third party:** OBS Studio 33 with DistroAV 6.2.2 as a third-party NDI sender: Strobe sent the gradient as Spout `StrobeMain`, OBS's saved scene showed it in its top-left quarter, and DistroAV's main output re-sent the program as `LIGHTNING (OBS PGM)`; a second Strobe received that through `--media "ndi:LIGHTNING (OBS PGM)"` upright, with the quarter exact within two levels (marker 255,255,191; quarter corners (2,2,191), (254,2,191), (254,251,191)) and the rest of OBS's canvas black.
+  - **Not verified:** a third-party Spout sender (Resolume, TouchDesigner, OBS) as the source; the Media row's buttons clicked on screen; the capture-thread copy's cost on the T480.
   - **Left:** zero-copy Spout input (`ReceiveTexture` into the player's texture on the render thread) if the T480 finds the copy costly; the Media Overlay, so a feed shows in scenes that do not read `syn_Media` (C-01); NDI audio.
-- **Work:** receive OBS's NDI or Spout output (DistroAV's main output, or a Spout filter), or Resolume's; time the copy on the T480 (the supervisor logs the conversion cost every minute).
+- **Work:** receive a third-party Spout sender (OBS's Spout output filter, or Resolume); time the copy on the T480 (the supervisor logs the conversion cost every minute).
 - **Acceptance:**
   - An NDI source and a third-party Spout sender each shown upright with type 3.
   - Each outage (the sender closed, the network pulled) said once, black, and back without a restart.
