@@ -11,6 +11,11 @@ npm run lint && npm run typecheck && npm test
 npm run test:e2e     # Playwright, against the built out/
 ```
 
+On Linux x64, install with `ONNXRUNTIME_NODE_INSTALL_CUDA=skip npm install`.
+Otherwise `onnxruntime-node`, under `@huggingface/transformers`, tries to
+download CUDA binaries that its GitHub release no longer has, and the install
+fails. Nothing here needs them (D569); `cargo xtask ci site` sets it already.
+
 The design follows the brand guide, [`docs/branding.md`](../docs/branding.md):
 the Void/Panel/Border palette with cyan as the active accent, the primary
 gradient kept for the mark and a few compact rules, Space Grotesk for

@@ -1499,6 +1499,9 @@ fn lint_lane(steps: &mut Vec<Step>, machine: &Machine) {
 /// nothing in it is Linux's or Windows's.
 fn site_lane(steps: &mut Vec<Step>, machine: &Machine) {
     const LANE: Lane = Lane::Site;
+    /// The variable `onnxruntime-node`'s install script reads to choose
+    /// whether it downloads the CUDA execution provider (D569).
+    const ONNXRUNTIME_CUDA: &str = "ONNXRUNTIME_NODE_INSTALL_CUDA";
     let Some(npm) = &machine.npm else {
         steps.push(Step::new(
             LANE,
@@ -1510,18 +1513,24 @@ fn site_lane(steps: &mut Vec<Step>, machine: &Machine) {
         ));
         return;
     };
-    let npm_run = |args: &[&str]| Action::Run {
+    let npm_with = |args: &[&str], env: Vec<(&'static str, String)>| Action::Run {
         program: npm.clone(),
         args: ["--prefix", "site"]
             .iter()
             .chain(args)
             .map(|arg| (*arg).to_owned())
             .collect(),
-        env: Vec::new(),
+        env,
     };
+    let npm_run = |args: &[&str]| npm_with(args, Vec::new());
     // `npm ci` installs exactly package-lock.json, and fails when it no
     // longer matches package.json, as `--locked` does for cargo.
-    steps.push(Step::new(LANE, "npm ci", npm_run(&["ci"])).timeout(10));
+    // `onnxruntime-node` (under `@huggingface/transformers`, for the CLIP
+    // scripts) downloads its CUDA binaries from GitHub on Linux x64 unless
+    // told not to, and that download is gone (404) for its pinned 1.21.0.
+    // Nothing here runs ONNX on a GPU, so the install skips it (D569).
+    let npm_ci = npm_with(&["ci"], vec![(ONNXRUNTIME_CUDA, "skip".to_owned())]);
+    steps.push(Step::new(LANE, "npm ci", npm_ci).timeout(10));
     steps.push(Step::new(LANE, "lint", npm_run(&["run", "lint"])).timeout(10));
     steps.push(Step::new(LANE, "typecheck", npm_run(&["run", "typecheck"])).timeout(10));
     steps.push(Step::new(LANE, "unit", npm_run(&["test"])).timeout(10));
@@ -1907,8 +1916,14 @@ mod tests {
             assert!(
                 steps
                     .iter()
-                    .all(|s| command(s).starts_with("npm --prefix site ")),
+                    .all(|s| command(s).contains("npm --prefix site ")),
                 "{host:?} runs the site's own scripts from the root"
+            );
+            let install = steps.iter().find(|s| s.name == "npm ci").map(command);
+            assert_eq!(
+                install.as_deref(),
+                Some("ONNXRUNTIME_NODE_INSTALL_CUDA=skip npm --prefix site ci"),
+                "{host:?}: npm ci skips onnxruntime-node's CUDA download (D569)"
             );
         }
     }
