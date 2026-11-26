@@ -81,8 +81,8 @@ which backend proved a claim.
   webcam's capture supervisor (watchdog, reconnect by name, said once,
   black when lost), with one upload a frame into one reused texture and
   `syn_MediaType` 3. An idle sender keeps its last picture. Verified on
-  LIGHTNING Strobe to Strobe over Spout: upright and exact, lost and back.
-  **Left:** NDI input with a runtime, a third-party sender as the source,
+  LIGHTNING Strobe to Strobe over Spout and over NDI: upright and exact,
+  lost said once. **Left:** a third-party sender as the source,
   the T480's cost of the capture-thread copy, and the Media Overlay (C-01).
 
 - **The library's scenes are prerendered, and launch opens on the Library
