@@ -5561,14 +5561,18 @@ impl Running {
         if !self.share.active(&stack.share) {
             return;
         }
+        // With nothing playing, both senders go out black at the post
+        // stage's size (its texture is only sized from, never read), so a
+        // receiver that connects first shows black rather than nothing.
+        let idle = !composited && stack.session.is_none();
         let clean = if composited {
             stack.compositor.output_texture()
         } else if let Some(session) = stack.session.as_ref() {
             session.player.output_texture()
         } else {
-            return;
+            stack.post.output_texture()
         };
-        let show = if self.posted {
+        let show = if self.posted && !idle {
             stack.post.output_texture()
         } else {
             clean
@@ -5576,7 +5580,8 @@ impl Running {
         let pictures = crate::output::Pictures {
             show,
             clean,
-            black: self.blackout,
+            black: self.blackout || idle,
+            clean_black: idle,
         };
         let changed = self.share.frame(
             &mut stack.share,

@@ -225,7 +225,8 @@ Scenes react to sound through the default **recording** device.
   is saved.
 - **What goes out** is the finished picture, after the output's look and
   mirrors. **Blackout blackens it too**, so a mixer fed from Strobe goes dark
-  with your projector. **Shared size** is the picture's own, which follows
+  with your projector. While no scene is playing, black goes out, so a
+  receiver that connects first shows black rather than nothing. **Shared size** is the picture's own, which follows
   the render scale, or a fixed size (720p to 4K) that a mixer input can rely
   on whatever the scene renders at.
 - **Clean feed.** A second Spout sender, with a name of its own, carries the

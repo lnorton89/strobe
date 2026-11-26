@@ -94,6 +94,9 @@ pub(crate) struct Pictures<'a> {
     pub(crate) clean: &'a Texture,
     /// The show is blacked out: the show's picture goes out black.
     pub(crate) black: bool,
+    /// Nothing is playing: the clean feed goes out black too, so a receiver
+    /// that connects before a scene is chosen shows black, not nothing.
+    pub(crate) clean_black: bool,
 }
 
 /// What the operator asked of NDI, compared without allocating per frame.
@@ -296,6 +299,7 @@ impl Sharing {
             show: source,
             clean: clean_source,
             black,
+            clean_black,
         } = pictures;
         if !self.active(gpu) {
             return false;
@@ -309,14 +313,7 @@ impl Sharing {
             .ndi
             .as_ref()
             .is_some_and(|ndi| ndi.status() == Status::Live);
-        let due = match (self.interval, self.last_pack) {
-            (Some(interval), Some(last)) => {
-                // A frame's worth of slack, so a 30 fps cap on a 60 Hz show
-                // takes every other frame rather than drifting below 30.
-                now.duration_since(last) + interval / 4 >= interval
-            }
-            _ => true,
-        };
+        let due = pack_due(self.interval, self.last_pack, now);
         let pixels = ndi_live && self.receivers != Some(0) && due;
         if pixels {
             self.last_pack = Some(now);
@@ -367,7 +364,7 @@ impl Sharing {
         if let Some(clean) = gpu.clean.as_mut() {
             let want = Want {
                 size: self.size,
-                black: false,
+                black: clean_black,
                 texture: true,
                 pixels: false,
             };
@@ -439,13 +436,16 @@ impl Sharing {
     /// Rebuilds the two notes: Spout's with the clean feed's, and NDI's with
     /// the stage's (which only NDI cannot do without). Only on a change.
     fn refresh_note(&mut self) {
-        let join = |parts: [&String; 2]| {
-            parts
-                .iter()
-                .filter(|part| !part.is_empty())
-                .map(|part| part.as_str())
-                .collect::<Vec<_>>()
-                .join(" ")
+        // Both senders failing for one reason (no SpoutLibrary.dll) say it
+        // once, not twice in a row.
+        let join = |[first, second]: [&String; 2]| {
+            if second.is_empty() || second == first {
+                first.clone()
+            } else if first.is_empty() {
+                second.clone()
+            } else {
+                format!("{first} {second}")
+            }
         };
         let notes = [
             join([&self.spout_note, &self.clean_note]),
@@ -560,6 +560,17 @@ fn open_spout(name: &str, note: &mut String) -> Option<Output> {
     }
 }
 
+/// Whether NDI's frame-rate cap lets this frame be packed: always without a
+/// cap or before the first pack, otherwise once `interval` has nearly
+/// passed. A quarter interval of slack, so a 30 fps cap on a 60 Hz show takes
+/// every other frame rather than drifting below 30.
+fn pack_due(interval: Option<Duration>, last: Option<Instant>, now: Instant) -> bool {
+    match (interval, last) {
+        (Some(interval), Some(last)) => now.duration_since(last) + interval / 4 >= interval,
+        _ => true,
+    }
+}
+
 /// Opens an NDI sender for `ask`.
 fn open_ndi(ask: &NdiAsk, note: &mut String) -> Option<Output> {
     let options = NdiOptions {
@@ -645,6 +656,58 @@ mod tests {
             sharing.notes()[0].contains("name of its own"),
             "and the Spout row says why: {:?}",
             sharing.notes()
+        );
+    }
+
+    #[test]
+    fn one_reason_for_both_spout_senders_is_said_once() {
+        let mut sharing = Sharing::new();
+        let reason = "Spout output needs SpoutLibrary.dll".to_owned();
+        sharing.spout_note.clone_from(&reason);
+        sharing.clean_note.clone_from(&reason);
+        sharing.refresh_note();
+        assert_eq!(sharing.notes()[0], reason, "the same reason, once");
+        sharing.clean_note = "The clean feed stopped: gone".to_owned();
+        sharing.refresh_note();
+        assert_eq!(
+            sharing.notes()[0],
+            format!("{reason} The clean feed stopped: gone"),
+            "two different reasons are both said"
+        );
+    }
+
+    /// Frames packed in one second of a `hz` show under a `cap`.
+    fn packed_in_a_second(hz: u32, cap: u32) -> u32 {
+        let interval = Some(Duration::from_secs_f64(1.0 / f64::from(cap)));
+        let start = Instant::now();
+        let mut last = None;
+        let mut packed = 0;
+        for frame in 0..hz {
+            let now = start + Duration::from_secs_f64(f64::from(frame) / f64::from(hz));
+            if pack_due(interval, last, now) {
+                last = Some(now);
+                packed += 1;
+            }
+        }
+        packed
+    }
+
+    #[test]
+    fn the_frame_rate_cap_takes_whole_frames_near_the_cap() {
+        for (hz, cap, want) in [
+            (60, 30, 30),
+            (60, 60, 60),
+            (75, 30, 38),
+            (144, 30, 36),
+            (144, 60, 72),
+            (30, 60, 30),
+        ] {
+            let got = packed_in_a_second(hz, cap);
+            assert_eq!(got, want, "a {hz} Hz show capped at {cap} fps packs {want}");
+        }
+        assert!(
+            pack_due(None, Some(Instant::now()), Instant::now()),
+            "no cap packs every frame"
         );
     }
 

@@ -366,11 +366,11 @@
 - **Acceptance:** deterministic tests for no audio, low confidence, track boundary and manual override; no double transition with a cue transition already in progress.
 
 ### M-06 NDI and Spout output
-- **Status:** **Built to the surveyed tools' feature set, with a clean Spout feed, and verified publishing through Spout (D570 to D574), 2026-11-26. NDI verified end to end on LIGHTNING with NDI 6 Tools; no Spout receiver application has shown the picture yet.**
+- **Status:** **Built to the surveyed tools' feature set, with a clean Spout feed, and verified publishing through Spout (D570 to D574), 2026-11-26. NDI and Spout verified end to end on LIGHTNING by independent receivers; no third-party application (OBS, Resolume) has shown the picture yet.**
   - [research/m06-ndi-spout.md](research/m06-ndi-spout.md) covers the SDK and runtime story, licensing, pixel formats and costs. It also holds a survey of how Synesthesia, Resolume, TouchDesigner, MadMapper, OBS, vMix and Millumin expose sharing.
   - **Built:**
     - Settings > Output > Sharing, saved: Spout and NDI on or off, editable names, NDI groups and a frame-rate cap, and a shared size (the picture's own, or 720p to 4K). The same options exist as one-run flags: `--spout`, `--ndi`, `--ndi-groups`, `--ndi-fps` and `--share-size`.
-    - The final picture is shared, and blackout blackens it.
+    - The final picture is shared, and blackout blackens it. While no scene plays, black goes out on both senders, so a receiver that connects first shows black.
     - `strobe_gfx::share::ShareStage` scales the picture or blacks it out. For NDI it packs UYVY on the GPU and reads it back through a fenced ring. NDI sends asynchronously, and does nothing while it has no receiver.
     - Spout shares the picture's own texture when it can. It creates the sender on the first frame, uses `UpdateSender` on a resize, and calls `Release` on drop.
     - A status line shows names, size, NDI receivers and rate. Each sender's failure is said once on its own row.
@@ -382,20 +382,26 @@
     - `--spout StrobeCheck --share-size 1280x720` is listed at 1280x720 by an independent receiver-side probe on LIGHTNING, and is gone from the list after a clean exit. So are the main sender and the clean feed side by side.
     - `--ndi` without a runtime gives one line with the NDI Tools link, and the show runs on.
     - NDI end to end on LIGHTNING with NDI 6 Tools 6.4 installed: an independent receiver (grafton-ndi, `RgbxRgba`) found `LIGHTNING (Strobe NDI Test)`, took its first 1280x720 frame 0.43 s after connecting, and received 448 frames in 8 s (56 fps, the show's own rate). The frame it saved is the playing scene with the right colours, so the UYVY pack, the ring and the asynchronous send hold together on a real driver and runtime.
+    - Spout end to end on LIGHTNING: a receiver built on the Spout 2.007 SDK's own `ReceiveImage` read 1280x720 pixels from `--spout StrobeMain --spout-clean StrobeRaw`, both feeds. `/strobe/cmd/blackout_on` over OSC turned the main feed black (mean RGB 0 0 0) while the clean feed kept the scene, and `blackout_off` brought it back.
+    - Spout and NDI side by side carry the same upright picture (scene 09, floor at the bottom in both).
+    - An NDI stream in the group `stage` is hidden from a receiver in the default group.
+    - With no scene playing (an empty library), an NDI receiver gets black frames; before this it got none.
+    - After a clean exit, neither the Spout senders nor the NDI source is listed.
+    - The NDI frame-rate cap is tested on a synthetic clock (`output::tests`): 30 fps on 60 Hz takes 30, on 75 Hz 38, on 144 Hz 36.
   - **Still not verified:**
-    - A Spout receiver application (OBS, Resolume) showing the picture.
+    - A third-party receiver application (OBS, Resolume) showing the picture.
     - NDI to a second machine over the network, and for 30 minutes.
+    - The NDI frame-rate cap's delivered rate on a quiet machine. LIGHTNING was compiling other projects at 100% CPU during the checks, so the rates measured then (5 to 17 fps) say nothing about the cap.
     - The frame cost on the T480 (`strobe-bench --share` there).
   - **Left, in demand order:**
     - More than two senders, or a clean NDI stream: a list of senders, each with a source, a protocol and a name (D574).
-    - Sending black while no scene plays. Until a scene is chosen nothing is sent, so a receiver that connects first lists the source but shows nothing (seen on LIGHTNING, 2026-11-26).
     - Spout and NDI input as a media source (M-04's family, its own item).
     - NDI audio.
     - Alpha (D248).
     - 16-bit output.
     - NDI delay, failover and tally.
     - OSC control of sharing.
-- **Work:** measure, then attach receivers. NDI Tools is now installed on LIGHTNING (2026-11-26), so NDI is checked there; a Spout receiver (OBS or Resolume) is still needed to see the Spout picture arrive.
+- **Work:** measure, then attach receivers. NDI Tools is now installed on LIGHTNING (2026-11-26), so NDI is checked there, and a Spout SDK receiver checks Spout; a third-party application (OBS or Resolume) is still needed on screen.
 - **Acceptance:**
   - `strobe-bench` with the output off and on, at 1280x720 and 1920x1080, on the T480.
   - A 30-minute NDI stream to a second machine, and a Spout receiver on the same machine.
