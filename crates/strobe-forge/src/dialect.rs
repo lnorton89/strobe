@@ -288,7 +288,7 @@ mod tests {
             c
         } else {
             let mut c = std::process::Command::new("sh");
-            c.args(["-c", &format!("head -c {BYTES} /dev/zero | tr '\0' x")]);
+            c.args(["-c", &format!("head -c {BYTES} /dev/zero | tr '\\0' x")]);
             c
         };
         let start = std::time::Instant::now();
