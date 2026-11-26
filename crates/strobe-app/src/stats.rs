@@ -2,11 +2,13 @@
 // Module:       strobe_app::stats
 // Description:  Frame-time readout: smoothed CPU time per frame and the
 //               frame rate the output window is actually achieving; the
-//               per-minute perf line; and the control window's pacing
-//               (make-current pacer, swap policy, paint-starvation drive).
+//               per-minute perf line and the live feed's samples; and the
+//               control window's pacing (make-current pacer, swap policy,
+//               paint-starvation drive).
 //
 // Dependencies: std; strobe-gfx (adaptive::MissCount, the missed-refresh
-//               count the perf line shares with the adaptive controller)
+//               count the perf line shares with the adaptive controller);
+//               strobe-remote (perf::PerfSample, the live feed's sample)
 // ============================================================================
 
 //! Frame statistics.
@@ -20,6 +22,7 @@
 
 use std::time::{Duration, Instant};
 use strobe_gfx::adaptive::{MissCount, cadence_for};
+use strobe_remote::perf::{ControlPerf, PerfSample};
 
 /// Weight of the newest sample in the averages.
 const SMOOTHING: f32 = 0.1;
@@ -137,6 +140,8 @@ pub struct PerfWindow {
     /// The lowest and highest render scale the frames were drawn at.
     scale_low: f32,
     scale_high: f32,
+    /// The render scale of the newest frame.
+    scale_last: f32,
     control_frames: u32,
     control_sum: f32,
     control_worst: f32,
@@ -179,6 +184,7 @@ impl PerfWindow {
             self.scale_low = self.scale_low.min(scale);
             self.scale_high = self.scale_high.max(scale);
         }
+        self.scale_last = scale;
         if let Some(previous) = self.last_frame {
             let ms = now.duration_since(previous).as_secs_f32() * 1000.0;
             self.worst_ms = self.worst_ms.max(ms);
@@ -218,46 +224,171 @@ impl PerfWindow {
     /// frame recorded, and the window starts over (keeping the last frame's
     /// time so the next interval is measured across the boundary).
     pub fn take_due(&mut self, now: Instant) -> Option<String> {
+        self.take_after(now, PERF_WINDOW)
+            .map(|summary| summary.line())
+    }
+
+    /// The window's numbers when `period` has passed since its first frame,
+    /// and the window starts over (keeping the last frame's time so the
+    /// next interval is measured across the boundary). The minute's log
+    /// line and the live feed's one-second samples (D567) are both this,
+    /// so the two always count alike.
+    pub fn take_after(&mut self, now: Instant, period: Duration) -> Option<PerfSummary> {
         let started = self.started?;
         let span = now.duration_since(started).as_secs_f32();
-        if span < PERF_WINDOW.as_secs_f32() {
+        if span < period.as_secs_f32() {
             return None;
         }
         let mean = |sum: f32, n: u32| if n > 0 { sum / n as f32 } else { 0.0 };
-        let scale = if self.scale_high - self.scale_low < 0.005 {
-            format!("{:.2}", self.scale_high)
-        } else {
-            format!("{:.2}-{:.2}", self.scale_low, self.scale_high)
-        };
-        let line = format!(
-            "perf: {:.1} fps over {:.0} s, missed {} refreshes ({:.1}% of frames), {} late of \
-             {} frames, worst gap {:.1} ms, gpu {:.2} ms, scale {scale}, control {} redraws \
-             {:.2} ms (worst {:.1} ms, {} unpainted): make-current {:.2}, layout {:.2}, paint \
-             {:.2}, swap {:.2} ms",
-            self.frames as f32 / span,
+        let summary = PerfSummary {
             span,
-            self.misses.missed(),
-            self.misses.share() * 100.0,
-            self.late,
-            self.frames,
-            self.worst_ms,
-            mean(self.gpu_sum, self.gpu_frames),
-            self.control_frames,
-            mean(self.control_sum, self.control_frames),
-            self.control_worst,
-            self.control_unpainted,
-            mean(self.part_sums[0], self.control_frames),
-            mean(self.part_sums[1], self.control_frames),
-            mean(self.part_sums[2], self.control_frames),
-            mean(self.part_sums[3], self.control_frames),
-        );
+            frames: self.frames,
+            late: self.late,
+            missed: self.misses.missed(),
+            miss_share: self.misses.share(),
+            worst_ms: self.worst_ms,
+            gpu_ms: (self.gpu_frames > 0).then(|| mean(self.gpu_sum, self.gpu_frames)),
+            scale_low: self.scale_low,
+            scale_high: self.scale_high,
+            scale_last: self.scale_last,
+            control_frames: self.control_frames,
+            control_mean: mean(self.control_sum, self.control_frames),
+            control_worst: self.control_worst,
+            control_unpainted: self.control_unpainted,
+            parts: self.part_sums.map(|sum| mean(sum, self.control_frames)),
+        };
         *self = Self {
             started: Some(now),
             last_frame: self.last_frame,
             ..Self::default()
         };
-        Some(line)
+        Some(summary)
     }
+}
+
+/// One [`PerfWindow`]'s numbers, taken when it was due.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PerfSummary {
+    /// Seconds the window covered.
+    pub span: f32,
+    /// Scene frames drawn.
+    pub frames: u32,
+    /// Frames over [`LATE_FACTOR`] budgets apart.
+    pub late: u32,
+    /// Refreshes missed (D316).
+    pub missed: u32,
+    /// The missed refreshes as a share of frames.
+    pub miss_share: f32,
+    /// The longest gap between frames, in milliseconds.
+    pub worst_ms: f32,
+    /// Mean GPU milliseconds, if any frame was timed.
+    pub gpu_ms: Option<f32>,
+    /// The lowest render scale.
+    pub scale_low: f32,
+    /// The highest render scale.
+    pub scale_high: f32,
+    /// The render scale of the window's last frame.
+    pub scale_last: f32,
+    /// Control-window redraws.
+    pub control_frames: u32,
+    /// Their mean milliseconds.
+    pub control_mean: f32,
+    /// The longest, in milliseconds.
+    pub control_worst: f32,
+    /// How many ran without a paint (D290).
+    pub control_unpainted: u32,
+    /// Mean milliseconds of each part, in [`ControlTimes`]' order.
+    pub parts: [f32; 4],
+}
+
+impl PerfSummary {
+    /// Frames per second over the window.
+    pub fn fps(&self) -> f32 {
+        if self.span > 0.0 {
+            self.frames as f32 / self.span
+        } else {
+            0.0
+        }
+    }
+
+    /// The `perf:` line the log carries once a minute (D206).
+    pub fn line(&self) -> String {
+        let scale = if self.scale_high - self.scale_low < 0.005 {
+            format!("{:.2}", self.scale_high)
+        } else {
+            format!("{:.2}-{:.2}", self.scale_low, self.scale_high)
+        };
+        format!(
+            "perf: {:.1} fps over {:.0} s, missed {} refreshes ({:.1}% of frames), {} late of \
+             {} frames, worst gap {:.1} ms, gpu {:.2} ms, scale {scale}, control {} redraws \
+             {:.2} ms (worst {:.1} ms, {} unpainted): make-current {:.2}, layout {:.2}, paint \
+             {:.2}, swap {:.2} ms",
+            self.fps(),
+            self.span,
+            self.missed,
+            self.miss_share * 100.0,
+            self.late,
+            self.frames,
+            self.worst_ms,
+            self.gpu_ms.unwrap_or(0.0),
+            self.control_frames,
+            self.control_mean,
+            self.control_worst,
+            self.control_unpainted,
+            self.parts[0],
+            self.parts[1],
+            self.parts[2],
+            self.parts[3],
+        )
+    }
+
+    /// This window as the live feed's sample (D567), with the facts the
+    /// window does not count: the smoothed CPU time, the budget, whether
+    /// the scale is adaptive, and the two states the log reports on their
+    /// own lines.
+    pub fn sample(&self, extra: SampleFacts) -> PerfSample {
+        let [make_current_ms, layout_ms, paint_ms, swap_ms] = self.parts;
+        PerfSample {
+            window_ms: (self.span * 1000.0).round() as u32,
+            fps: self.fps(),
+            frames: self.frames,
+            late: self.late,
+            missed: self.missed,
+            worst_gap_ms: self.worst_ms,
+            gpu_ms: self.gpu_ms,
+            cpu_ms: extra.cpu_ms,
+            budget_ms: extra.budget_ms,
+            scale: self.scale_last,
+            adaptive: extra.adaptive,
+            control: ControlPerf {
+                redraws: self.control_frames,
+                mean_ms: self.control_mean,
+                worst_ms: self.control_worst,
+                unpainted: self.control_unpainted,
+                make_current_ms,
+                layout_ms,
+                paint_ms,
+                swap_ms,
+            },
+            control_slowed: extra.control_slowed,
+            output_not_foreground: extra.output_not_foreground,
+        }
+    }
+}
+
+/// What a live sample says beyond its [`PerfSummary`].
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SampleFacts {
+    /// Smoothed CPU milliseconds a frame ([`FrameStats::cpu_ms`]).
+    pub cpu_ms: f32,
+    /// One refresh period of the output's monitor.
+    pub budget_ms: f32,
+    /// Whether adaptive resolution is on.
+    pub adaptive: bool,
+    /// Whether the control window is slowed (D216).
+    pub control_slowed: bool,
+    /// Whether the fullscreen output lacks the focus (D453).
+    pub output_not_foreground: bool,
 }
 
 /// Paces the control window by what making its context current costs
@@ -762,6 +893,66 @@ mod tests {
             window.take_due(at + Duration::from_secs(2)).is_none(),
             "the window started over"
         );
+    }
+
+    #[test]
+    fn the_live_sample_counts_what_the_minute_line_counts() -> anyhow::Result<()> {
+        // The same frames into a one-second window and a minute's: over the
+        // first second they must say the same, since a watcher compares the
+        // feed with the log (D567).
+        let mut live = PerfWindow::default();
+        let mut minute = PerfWindow::default();
+        let start = Instant::now();
+        let mut at = start;
+        let mut sample = None;
+        for i in 0..70_u32 {
+            let gap = if i % 10 == 9 { 33_333 } else { 16_667 };
+            at += Duration::from_micros(gap);
+            for window in [&mut live, &mut minute] {
+                window.frame(at, 1000.0 / 60.0, Some(2.5), 0.75);
+                window.control(ControlTimes {
+                    total: Duration::from_millis(4),
+                    swap: Duration::from_millis(2),
+                    ..ControlTimes::default()
+                });
+            }
+            if sample.is_none() {
+                sample = live.take_after(at, Duration::from_secs(1));
+            }
+        }
+        let sample = sample.ok_or_else(|| anyhow::anyhow!("a second passed"))?;
+        let whole = minute
+            .take_after(at, Duration::ZERO)
+            .ok_or_else(|| anyhow::anyhow!("the minute's window"))?;
+        assert!(sample.frames < whole.frames, "a second is part of the run");
+        assert_eq!(sample.gpu_ms, whole.gpu_ms, "the same GPU mean");
+        assert_eq!(sample.parts, whole.parts, "and the same control parts");
+        assert!(sample.late > 0, "late frames are counted: {sample:?}");
+        let wire = sample.sample(SampleFacts {
+            cpu_ms: 1.5,
+            budget_ms: 1000.0 / 60.0,
+            adaptive: true,
+            control_slowed: false,
+            output_not_foreground: true,
+        });
+        assert_eq!(wire.frames, sample.frames, "frames carried over");
+        assert_eq!(wire.late, sample.late, "late carried over");
+        assert_eq!(wire.missed, sample.missed, "misses carried over");
+        assert_eq!(wire.scale, 0.75, "the scale");
+        assert_eq!(wire.control.swap_ms, 2.0, "the swap part");
+        assert!(
+            (900..=1100).contains(&wire.window_ms),
+            "about a second: {}",
+            wire.window_ms
+        );
+        assert!(wire.adaptive && wire.output_not_foreground, "the facts");
+        assert!(
+            PerfWindow::default()
+                .take_after(at, Duration::ZERO)
+                .is_none(),
+            "an empty window has nothing to say"
+        );
+        Ok(())
     }
 
     #[test]

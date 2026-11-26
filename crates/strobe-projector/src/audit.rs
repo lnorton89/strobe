@@ -4,7 +4,7 @@
 //               status query, refused request and DHCP lease, rotated at
 //               1 MB with ten kept.
 //
-// Dependencies: chrono, log
+// Dependencies: jiff, log
 // ============================================================================
 
 //! Who switched what, and when.
@@ -74,7 +74,7 @@ impl Audit {
 
     /// Appends one line.
     pub fn record(&self, source: &str, target: &str, action: &str, result: &str) {
-        let time = chrono::Local::now().format("%Y-%m-%dT%H:%M:%S%z");
+        let time = local_timestamp();
         let line = format!(
             "{time}\tsrc={source}\ttarget={target}\taction={action}\tresult={result}",
             source = clean(source),
@@ -94,6 +94,19 @@ impl Audit {
             log::warn!("projector command log {}: {error}", dir.display());
         }
     }
+}
+
+/// Now in the local zone, as `2026-11-21T14:05:09+0100`. Empty when the
+/// system clock is outside what `jiff` represents, so the line is still
+/// written.
+fn local_timestamp() -> String {
+    jiff::Timestamp::try_from(std::time::SystemTime::now())
+        .map(|now| {
+            now.to_zoned_datetime(jiff::tz::TimeZone::system())
+                .strftime("%Y-%m-%dT%H:%M:%S%z")
+                .to_string()
+        })
+        .unwrap_or_default()
 }
 
 /// `text` on one line: a tab or line break in a projector's answer would

@@ -25,7 +25,7 @@
 //! |---|---|---|
 //! | `fmt` | `cargo fmt --all -- --check` | `rustfmt` |
 //! | `lint` | Linux: actionlint over the workflows and shellcheck over the `.sh` scripts; Windows: PSScriptAnalyzer over the `.ps1` scripts (D541) | `rustfmt`, `windows` |
-//! | `check` | clippy `-D warnings` over the workspace; on Linux also `strobe-io`, `strobe-audio` and `strobe-shadertoy` each without its default feature, `strobe-web` and `strobe-gfx` for `wasm32-unknown-unknown` (D544, D552), rustdoc with `-D warnings`, and the Windows cross-check (D541); on macOS the portable crates only | each platform job |
+//! | `check` | clippy `-D warnings` over the workspace; on Linux also `strobe-io`, `strobe-audio`, `strobe-shadertoy` and `strobe-forge` each without its default feature, `strobe-web` and `strobe-gfx` for `wasm32-unknown-unknown` (D544, D552), rustdoc with `-D warnings`, and the Windows cross-check (D541); on macOS the portable crates only | each platform job |
 //! | `test` | `cargo test --workspace --all-features`; on macOS the portable crates | each platform job |
 //! | `deny` | `cargo deny check` | `cargo-deny` |
 //! | `generated` | the changelog, icon and credits checks | `changelog` |
@@ -99,11 +99,12 @@ const LAN_TESTS: &str = "STROBE_TEST_LAN";
 
 /// The crates macOS cannot build yet: `strobe-gfx` has no CGL context, and
 /// the rest depend on it (strobe-autocontrol renders to measure, strobe-web
-/// is the scene player). strobe-shadertoy's tests render, so it is checked
-/// without them.
-const NOT_ON_MACOS: [&str; 6] = [
+/// is the scene player, strobe-forge renders to check). strobe-shadertoy's
+/// tests render, so it is checked without them.
+const NOT_ON_MACOS: [&str; 7] = [
     "strobe-gfx",
     "strobe-bench",
+    "strobe-forge",
     "strobe-app",
     "strobe-autocontrol",
     "strobe-shadertoy",
@@ -616,10 +617,13 @@ fn check_lane(steps: &mut Vec<Step>, machine: &Machine) {
     //   the offline tuning harness use it.
     // - strobe-shadertoy without `net`: conversion and analysis only, as
     //   the auto-controls crate uses it.
+    // - strobe-forge without `llm`: `check` and the loop with no HTTP
+    //   client, as the Windows cross-check builds it (D562).
     for (name, krate) in [
         ("clippy no-midi", "strobe-io"),
         ("clippy no-capture", "strobe-audio"),
         ("clippy no-net", "strobe-shadertoy"),
+        ("clippy no-llm", "strobe-forge"),
     ] {
         let mut alone = vec![
             "clippy",
@@ -710,9 +714,10 @@ fn check_lane(steps: &mut Vec<Step>, machine: &Machine) {
     // strobe-script is excluded: rquickjs compiles QuickJS's C sources,
     // which needs MSVC and the Windows SDK. strobe-app depends on it, so
     // cargo would build it anyway (its Windows branches are `cfg!` values,
-    // type-checked on every host). strobe-shadertoy is checked by the next
-    // step without its `net` feature, whose TLS (ring) compiles C for MSVC
-    // (D110). A Windows host checks all of them natively.
+    // type-checked on every host). strobe-shadertoy and strobe-forge are
+    // checked by the next step without `net` and `llm`, whose TLS (ring)
+    // compiles C for MSVC (D110, D562). A Windows host checks all of them
+    // natively.
     let mut cross = vec![
         "clippy",
         "--locked",
@@ -723,6 +728,8 @@ fn check_lane(steps: &mut Vec<Step>, machine: &Machine) {
         "strobe-app",
         "--exclude",
         "strobe-shadertoy",
+        "--exclude",
+        "strobe-forge",
         "--all-targets",
         "--all-features",
         "--target",
@@ -734,6 +741,8 @@ fn check_lane(steps: &mut Vec<Step>, machine: &Machine) {
         "--locked",
         "-p",
         "strobe-shadertoy",
+        "-p",
+        "strobe-forge",
         "--no-default-features",
         "--all-targets",
         "--target",

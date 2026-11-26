@@ -136,7 +136,7 @@ use crate::snapshot;
 use crate::song::SongWatch;
 use crate::stats::{
     ControlDrive, ControlPacer, ControlStep, ControlTimes, FinishMode, FrameStats, PaceChange,
-    PerfWindow, SwapPolicy,
+    PerfWindow, SampleFacts, SwapPolicy,
 };
 use crate::thumbnails;
 use crate::ui::widgets::Tone;
@@ -653,6 +653,9 @@ struct Running {
     stats: FrameStats,
     /// A minute of frame timings, logged as one line (T10).
     perf_log: PerfWindow,
+    /// A second of the same timings, published to a watching controller
+    /// (D567).
+    perf_live: PerfWindow,
     /// Slows the control window when switching to it waits on the output
     /// (D216).
     control_pacer: ControlPacer,
@@ -1092,6 +1095,7 @@ impl Running {
             console: Console::default(),
             stats: FrameStats::default(),
             perf_log: PerfWindow::default(),
+            perf_live: PerfWindow::default(),
             control_pacer: ControlPacer::default(),
             swap_policy: SwapPolicy::new(finish_mode()),
             control_drive: ControlDrive::default(),
@@ -4827,6 +4831,29 @@ impl Running {
         }
     }
 
+    /// Publishes a second of frame timings to the LAN remote's watchers
+    /// (D567) when one is due, while the listener runs. The sample is built
+    /// once a second and the bridge copies it into one slot, so nothing here
+    /// allocates.
+    fn publish_perf(&mut self, now: Instant) {
+        if !self.lan.running() {
+            // Started afresh when the listener next starts.
+            self.perf_live = PerfWindow::default();
+            return;
+        }
+        let period = Duration::from_millis(u64::from(strobe_remote::perf::PERIOD_MS));
+        let Some(summary) = self.perf_live.take_after(now, period) else {
+            return;
+        };
+        self.lan.publish_perf(summary.sample(SampleFacts {
+            cpu_ms: self.stats.cpu_ms(),
+            budget_ms: self.stack.perf.budget_ms(),
+            adaptive: self.stack.perf.enabled(),
+            control_slowed: self.control_pacer.is_slow(),
+            output_not_foreground: self.foreground.away(),
+        }));
+    }
+
     // --------------------------------------------------------- show control
 
     /// Step 1 of the frame (docs/ARCHITECTURE.md): runs the MIDI and OSC
@@ -5317,9 +5344,20 @@ impl Running {
             self.stack.perf.gpu_ms(),
             self.render_scale,
         );
+        // The live feed's second (D567) is counted only while someone could
+        // watch it.
+        if self.lan.running() {
+            self.perf_live.frame(
+                started,
+                self.stack.perf.budget_ms(),
+                self.stack.perf.gpu_ms(),
+                self.render_scale,
+            );
+        }
         if let Some(line) = self.perf_log.take_due(started) {
             log::info!("{line}");
         }
+        self.publish_perf(started);
         let (dt, wall_dt) = if self.screenshot.is_some() {
             (SCREENSHOT_DT, SCREENSHOT_DT)
         } else {
@@ -5979,14 +6017,18 @@ impl Running {
         if presents_control(self.control_covered, unpainted) {
             self.present(Surface::Control, swap_began);
         }
-        self.perf_log.control(ControlTimes {
+        let times = ControlTimes {
             total: began.elapsed(),
             make_current,
             layout: ran,
             paint,
             swap: swap_began.elapsed(),
             unpainted,
-        });
+        };
+        self.perf_log.control(times);
+        if self.lan.running() {
+            self.perf_live.control(times);
+        }
         if self
             .screenshot
             .as_ref()

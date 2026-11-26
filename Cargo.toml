@@ -98,9 +98,11 @@ hmac = "0.13"
 # PJLink's and Panasonic NTCONTROL's authentication digest (D502). The same
 # RustCrypto `digest` 0.11 as sha1 and sha2: it adds this one crate.
 md-5 = "0.11"
-# Local time for `strobe_Date` (D111). Only the clock feature: no serde,
-# no time-zone database, no wasm shims.
-chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+# Local time for `strobe_Date` (D112) and the projector log's timestamps.
+# Replaces chrono, which RUSTSEC-2026-0543 marks unmaintained (D566). The
+# system zone needs `tz-system`; Windows has no zone database of its own,
+# so `tzdb-bundle-platform` embeds one there and only there.
+jiff = { version = "1", default-features = false, features = ["std", "tz-system", "tzdb-bundle-platform", "tzdb-zoneinfo"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 # Webcam capture (M-04, D528), Windows only: Media Foundation and nothing
 # else. No default features: `decoding` pulls mozjpeg (C), and MJPEG decodes

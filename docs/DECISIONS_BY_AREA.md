@@ -13,6 +13,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [strobe-capture](#strobe-capture)
 - [strobe-conventions](#strobe-conventions)
 - [strobe-diag](#strobe-diag)
+- [strobe-forge](#strobe-forge)
 - [strobe-gfx](#strobe-gfx)
 - [strobe-io](#strobe-io)
 - [strobe-playlist](#strobe-playlist)
@@ -29,7 +30,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-app
 
-48 decision(s).
+49 decision(s).
 
 - [D42](decisions/D42.md): release builds keep line tables and are not stripped
 - [D55](decisions/D55.md): macOS CI is two-tier until strobe-gfx has a CGL context
@@ -78,6 +79,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D544](decisions/D544.md): what the audit work had skipped: a static C runtime, the imports and the loaded ANGLE checked, the browser engine built, generators that reach the code, and a changelog that can be corrected
 - [D551](decisions/D551.md): `--diagnose` raises its box only when nothing reads its output, so a harness run ends
 - [D553](decisions/D553.md): Shadertoy cube-map inputs become scene cube maps, the keyboard is 256x3 with every key up, and the Needs-work bin is closed
+- [D567](decisions/D567.md): a desktop controller can watch the host's frame timing live, one sample a second, without the picture stream
 - [D568](decisions/D568.md): cargo-deny ignores RUSTSEC-2026-0543, `chrono` unmaintained, until its two calls move
 
 ## strobe-audio
@@ -115,7 +117,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-bench
 
-23 decision(s).
+24 decision(s).
 
 - [D55](decisions/D55.md): macOS CI is two-tier until strobe-gfx has a CGL context
 - [D56](decisions/D56.md): CI keeps the rendered frames
@@ -140,6 +142,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D504](decisions/D504.md): pull requests build `release-fast`; the fat-LTO `release` build runs on master
 - [D534](decisions/D534.md): the script-aware corpus is a regression gate, with expectations and baseline frames
 - [D555](decisions/D555.md): a hand-loaded scene compiles in the background where the driver can, and the output plays on meanwhile
+- [D562](decisions/D562.md): Scenes from a photo are made by one written pipeline: a project skill, the strobe-forge checker and its LLM loop
 
 ## strobe-capture
 
@@ -185,6 +188,12 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D541](decisions/D541.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
 - [D556](decisions/D556.md): the computer and display stay awake while the output is fullscreen
 - [D558](decisions/D558.md): the sandbox generates controls a step per animation frame, on the app's own engine and settings
+
+## strobe-forge
+
+1 decision(s).
+
+- [D562](decisions/D562.md): Scenes from a photo are made by one written pipeline: a project skill, the strobe-forge checker and its LLM loop
 
 ## strobe-gfx
 
@@ -275,7 +284,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-remote
 
-17 decision(s).
+18 decision(s).
 
 - [D232](decisions/D232.md): the remote's bridge to the app thread is a bounded queue with a reply per request
 - [D250](decisions/D250.md): the LAN remote speaks its own small HTTP and WebSocket on std threads, with sha1 the only new crate
@@ -294,6 +303,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D519](decisions/D519.md): the controller lays its rows out at the host's size and scales them with the picture
 - [D539](decisions/D539.md): property tests over untrusted input, weekly machete and coverage, and the decisions indexed by crate
 - [D544](decisions/D544.md): what the audit work had skipped: a static C runtime, the imports and the loaded ANGLE checked, the browser engine built, generators that reach the code, and a changelog that can be corrected
+- [D567](decisions/D567.md): a desktop controller can watch the host's frame timing live, one sample a second, without the picture stream
 
 ## strobe-scene
 
@@ -460,7 +470,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## Not tied to one crate
 
-230 decision(s).
+231 decision(s).
 
 - [D1](decisions/D1.md): native OpenGL (glow + glutin), not wgpu
 - [D2](decisions/D2.md): ANGLE as the fallback context, not native-only
@@ -692,3 +702,4 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D560](decisions/D560.md): From image makes scenes from a picture by templates, neural recognition and the visitor's own LLM, and a person picks
 - [D563](decisions/D563.md): a short dropdown shows its options side by side, and a mapped control says so on its row
 - [D565](decisions/D565.md): a shared scene's link shows a frame of the scene, sent by the browser that shares it
+- [D566](decisions/D566.md): local time comes from jiff, not chrono

@@ -82,7 +82,7 @@ pub enum AudioArg {
     about = "Strobe: an audio-reactive VJ engine",
     group(
         ArgGroup::new("venue_role")
-            .args(["remote", "control"])
+            .args(["remote", "control", "watch_perf"])
             .multiple(true)
     )
 )]
@@ -286,10 +286,10 @@ pub struct Cli {
     /// Venue mode (D288): with `--remote`, a controller that proves it holds
     /// this trust file is paired for full desktop control with no approval
     /// click, while full desktop access is on; read once at launch. With
-    /// `--control`, the file this laptop proves to the host. Make the file
-    /// with `--make-remote-trust`. Anyone who can read it has full control;
-    /// keep it private. A relative path is taken from the folder Strobe is
-    /// started in, and kept as the whole path (D463).
+    /// `--control` or `--watch-perf`, the file this computer proves to the
+    /// host. Make the file with `--make-remote-trust`. Anyone who can read it
+    /// has full control; keep it private. A relative path is taken from the
+    /// folder Strobe is started in, and kept as the whole path (D463).
     #[arg(long, value_name = "FILE", requires = "venue_role", value_parser = parse_file_path)]
     pub remote_trust: Option<PathBuf>,
     /// Control another Strobe from this one (D275, D294): open straight into
@@ -311,6 +311,30 @@ pub struct Cli {
     /// system), print how to use it, and exit. Refuses to overwrite.
     #[arg(long, value_name = "FILE", value_parser = parse_file_path)]
     pub make_remote_trust: Option<PathBuf>,
+    /// Watch another Strobe's live performance feed (D567) with no window:
+    /// connect to the host at HOST:PORT (a bare IP takes port 47812) by
+    /// proving `--remote-trust FILE`, ask for its frame timing and nothing
+    /// else, and print a line a second in the words of its `perf:` log
+    /// line. The host needs `--remote --allow-desktop-control --remote-trust
+    /// FILE`. The desktop lease and the picture of the host's window are
+    /// never asked for, so watching costs the show one small message a
+    /// second. Reconnects by itself; Ctrl+C stops it. The Windows release
+    /// build has no console: redirect its output, or use `--perf-csv`.
+    #[arg(
+        long,
+        value_name = "HOST:PORT",
+        value_parser = parse_control,
+        requires = "remote_trust",
+        conflicts_with_all = ["remote", "control"]
+    )]
+    pub watch_perf: Option<std::net::SocketAddr>,
+    /// With `--watch-perf`: also append each sample to FILE as a CSV row
+    /// (the header goes in when the file is empty), flushed every second.
+    #[arg(long, value_name = "FILE", requires = "watch_perf", value_parser = parse_file_path)]
+    pub perf_csv: Option<PathBuf>,
+    /// With `--watch-perf`: stop after this many seconds.
+    #[arg(long, value_name = "SECONDS", requires = "watch_perf")]
+    pub perf_seconds: Option<u64>,
 }
 
 /// A trust file's path, made whole against the folder Strobe was started in
@@ -729,6 +753,65 @@ mod tests {
             !Cli::try_parse_from(["strobe"])?.library_is_optional(),
             "a show machine needs its library"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn watch_perf_needs_a_trust_file_and_is_neither_host_nor_controller() -> Result<()> {
+        let plain = Cli::try_parse_from(["strobe"])?;
+        assert!(
+            plain.watch_perf.is_none() && plain.perf_csv.is_none() && plain.perf_seconds.is_none(),
+            "nothing is watched by default"
+        );
+        let watch = Cli::try_parse_from([
+            "strobe",
+            "--watch-perf",
+            "10.0.0.5",
+            "--remote-trust",
+            "venue.trust",
+            "--perf-csv",
+            "soak.csv",
+            "--perf-seconds",
+            "600",
+        ])?;
+        assert_eq!(
+            watch
+                .watch_perf
+                .map(|address| address.to_string())
+                .as_deref(),
+            Some("10.0.0.5:47812"),
+            "a bare IP takes the remote's port"
+        );
+        assert_eq!(
+            watch.perf_csv,
+            Some(std::env::current_dir()?.join("soak.csv")),
+            "the CSV path made whole"
+        );
+        assert_eq!(watch.perf_seconds, Some(600), "the limit");
+        for bad in [
+            ["strobe", "--watch-perf", "10.0.0.5"].as_slice(),
+            &[
+                "strobe",
+                "--watch-perf",
+                "10.0.0.5",
+                "--remote-trust",
+                "v.trust",
+                "--remote",
+            ],
+            &[
+                "strobe",
+                "--watch-perf",
+                "10.0.0.5",
+                "--remote-trust",
+                "v.trust",
+                "--control",
+                "10.0.0.6",
+            ],
+            &["strobe", "--perf-csv", "soak.csv"],
+            &["strobe", "--perf-seconds", "5"],
+        ] {
+            assert!(Cli::try_parse_from(bad).is_err(), "{bad:?} must be refused");
+        }
         Ok(())
     }
 

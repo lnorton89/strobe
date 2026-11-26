@@ -179,8 +179,17 @@ fn rig_at(
                 current: Some("Aurora".into()),
                 ..Snapshot::default()
             };
+            let mut frames = 0_u32;
             while !stop.load(Ordering::SeqCst) {
                 app_end.publish(&snapshot);
+                // A performance sample every pass (D567): the real app
+                // publishes once a second, which would slow the tests.
+                frames += 1;
+                app_end.publish_perf(strobe_remote::perf::PerfSample {
+                    frames,
+                    fps: 60.0,
+                    ..strobe_remote::perf::PerfSample::default()
+                });
                 while let Some(incoming) = app_end.next() {
                     incoming.answer(Answer::Accepted);
                 }
@@ -629,6 +638,67 @@ fn the_lease_holder_gets_the_controls_once_and_its_edits_reach_the_app() -> Resu
     assert!(
         rig.desktop.active(),
         "a drag's edits did not cost the lease"
+    );
+    Ok(())
+}
+
+/// Sends a ping and returns the types of every message before its pong.
+fn until_pong(ws: &mut Ws) -> Result<Vec<String>> {
+    ws.send(&json!({"type":"ping"}))?;
+    let mut seen = Vec::new();
+    for _ in 0..200 {
+        let message = ws.json()?;
+        let kind = message["type"].as_str().unwrap_or_default().to_string();
+        if kind == "pong" {
+            return Ok(seen);
+        }
+        seen.push(kind);
+    }
+    bail!("no pong")
+}
+
+#[test]
+fn only_a_desktop_controller_that_asks_gets_the_perf_feed_and_closing_stops_it() -> Result<()> {
+    let rig = rig()?;
+    rig.desktop.enable(true);
+    // A phone is refused: its pairing is for show commands only.
+    let (_, _, mut phone) = pair(&rig)?;
+    phone.send(&json!({"type":"perf_open"}))?;
+    assert_eq!(
+        phone.until("error")?["code"],
+        "unauthorized",
+        "a phone is refused the feed"
+    );
+    // A desktop controller that has not asked gets nothing, however many
+    // samples the app publishes: an older controller would close the
+    // connection on a message it does not know.
+    let (_, _, mut watcher) = pair_as(&rig, true)?;
+    std::thread::sleep(Duration::from_millis(100));
+    let unasked = until_pong(&mut watcher)?;
+    assert!(
+        !unasked.iter().any(|kind| kind == "perf"),
+        "nothing unasked: {unasked:?}"
+    );
+    // It asks, without taking the desktop lease, and samples arrive with
+    // a rising revision.
+    watcher.send(&json!({"type":"perf_open"}))?;
+    let first = watcher.until("perf")?;
+    let second = watcher.until("perf")?;
+    let revision = |message: &Value| message["revision"].as_u64().unwrap_or_default();
+    assert!(
+        revision(&second) > revision(&first),
+        "newer samples follow: {first} {second}"
+    );
+    assert_eq!(second["sample"]["fps"], 60.0, "the app's numbers: {second}");
+    assert!(!rig.desktop.active(), "watching never took the lease");
+    // Closed: after the pong that follows the close, no sample comes.
+    watcher.send(&json!({"type":"perf_close"}))?;
+    until_pong(&mut watcher)?;
+    std::thread::sleep(Duration::from_millis(100));
+    let after = until_pong(&mut watcher)?;
+    assert!(
+        !after.iter().any(|kind| kind == "perf"),
+        "nothing after perf_close: {after:?}"
     );
     Ok(())
 }
