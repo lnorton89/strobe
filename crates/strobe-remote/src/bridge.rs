@@ -42,6 +42,7 @@
 //! No socket is opened here, or anywhere yet: the listener (L-02) and
 //! pairing (L-03) come with their own decisions.
 
+use crate::perf::PerfSample;
 use crate::{AudioStatus, ErrorCode, RemoteCommand, ServerMessage, valid_request_id};
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, TrySendError, sync_channel};
@@ -174,6 +175,9 @@ impl Pending {
 struct Shared {
     revision: u64,
     snapshot: Snapshot,
+    /// The newest performance sample and its revision (D567): one slot, never
+    /// a queue.
+    perf: Option<(u64, PerfSample)>,
 }
 
 /// The adapter's end: cheap to clone, one per connection if need be.
@@ -208,6 +212,7 @@ pub fn bridge(capacity: usize) -> (Remote, AppEnd) {
     let state = Arc::new(Mutex::new(Shared {
         revision: 0,
         snapshot: Snapshot::default(),
+        perf: None,
     }));
     (
         Remote {
@@ -254,6 +259,15 @@ impl Remote {
         let shared = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         (shared.revision, shared.snapshot.clone())
     }
+
+    /// The newest performance sample and its revision (D567), once the app
+    /// has published one.
+    pub fn perf(&self) -> Option<(u64, PerfSample)> {
+        self.state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .perf
+    }
 }
 
 impl AppEnd {
@@ -291,12 +305,21 @@ impl AppEnd {
         shared.revision += 1;
         true
     }
+
+    /// Publishes a performance sample (D567), replacing the one before: a
+    /// connection that has not sent the last one yet sends this one instead.
+    /// Floats that are not finite are stored as 0 ([`PerfSample::sanitized`]).
+    pub fn publish_perf(&self, sample: PerfSample) {
+        let mut shared = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        let revision = shared.perf.map_or(1, |(revision, _)| revision + 1);
+        shared.perf = Some((revision, sample.sanitized()));
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use anyhow::Result;
+    use anyhow::{Context as _, Result};
 
     #[test]
     fn a_command_goes_to_the_app_and_its_answer_comes_back() -> Result<()> {
@@ -401,6 +424,25 @@ mod tests {
         answering
             .join()
             .map_err(|_| anyhow::anyhow!("the answering thread panicked"))?;
+        Ok(())
+    }
+
+    #[test]
+    fn only_the_newest_perf_sample_is_kept() -> Result<()> {
+        let (remote, app) = bridge(1);
+        assert!(remote.perf().is_none(), "nothing published");
+        for frames in [58, 59, 60] {
+            app.publish_perf(PerfSample {
+                frames,
+                fps: f32::NAN,
+                ..PerfSample::default()
+            });
+        }
+        let (revision, sample) = remote.perf().context("a sample")?;
+        assert_eq!(revision, 3, "every publish moves the revision");
+        assert_eq!(sample.frames, 60, "and only the last is kept");
+        assert_eq!(sample.fps, 0.0, "made finite on the way in");
+        assert_eq!(remote.snapshot().0, 0, "the show state is untouched");
         Ok(())
     }
 

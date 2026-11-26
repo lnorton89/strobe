@@ -407,6 +407,11 @@
 - **Work:** on JAJA-MINI-PC, run `install.ps1` over the Python install (it migrates the config and replaces the task); repeat the README's checks with `pj` and with Settings > Projectors: status in standby, on with `--wait` through the lamp strike, off through the cool-down, the page from a phone on the Wi-Fi with the token link, the service after a reboot with nobody logged in, and Strobe's "Web page" switch saying the port is held while the service runs. Force the fallback once (a wrong PJLink password on the Panasonic) and switch it over NTCONTROL. Decide whether two processes need a shared lock (a lock file beside the config) or one host only.
 - **Acceptance:** results with timings in the tool's README; no command sent mid-transition (the unit's own log or a `--wait` trace); the fallback switches the PT-DZ6700; the reboot check passes.
 
+### L-10 Live performance feed for a watching controller
+- **Status:** Built (D567). A desktop controller sends `perf_open` and gets a `perf` sample once a second: frame rate, late and missed frames, worst gap, GPU and CPU time, scale, the control window's redraw cost by part, and the slowed and not-foreground states. The counting is the minute `perf:` line's (`stats::PerfWindow::take_after`). No lease and no picture stream are needed. The desktop viewer draws it as a strip with a one-minute trend. `strobe --watch-perf HOST:PORT --remote-trust FILE [--perf-csv FILE] [--perf-seconds N]` prints it with no window. Tests in `strobe-remote` (protocol, bridge, `tests/server.rs`) and `strobe-app` (`stats`, `perf_feed`, `perf_watch`, `desktop`, `cli`). **Not done:** measuring what watching costs the host.
+- **Work:** on the T480 (or the mini PC), run a 30-minute show soak with `--watch-perf` connected from LIGHTNING and `--perf-csv` on, then 30 minutes without a watcher, and compare the host's `perf:` lines. Check the viewer's strip by eye in a real two-machine session.
+- **Acceptance:** the host's `perf:` lines show no more late frames or missed refreshes with a watcher than without one, within run-to-run noise. The CSV is whole to the last second after a Ctrl+C. The strip's numbers match the host's log for the same minute.
+
 ## Epic W — The website's shader sandbox
 
 ### W-01 Sandbox parity with the app

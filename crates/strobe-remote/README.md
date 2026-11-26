@@ -85,11 +85,12 @@ id made by [`trust::new_controller_id`](src/trust.rs), and reconnects with a
 
 | Item | What |
 |---|---|
-| `ClientMessage` | `hello`, `request_pair` (a phone, by name, D469), `pair` (the frozen version-1 code message), `authenticate`, `command`, `ping` (and the desktop extension's, `request_desktop` among them, and venue mode's `trust_start` and `trust_proof`). Internally tagged by `type`, `deny_unknown_fields`: an unknown type or field fails to parse rather than being ignored. |
+| `ClientMessage` | `hello`, `request_pair` (a phone, by name, D469), `pair` (the frozen version-1 code message), `authenticate`, `command`, `ping` (and the desktop extension's, `request_desktop` among them, and venue mode's `trust_start` and `trust_proof`, and the performance feed's `perf_open` and `perf_close`). Internally tagged by `type`, `deny_unknown_fields`: an unknown type or field fails to parse rather than being ignored. |
 | `RemoteCommand` | The allowlist: no scene loading, files, scripts, shaders or settings. |
-| `ServerMessage` | `hello`, `paired`, `authenticated`, a revisioned `state` snapshot, `command_result`, `error`, `pong`. A `paired` after `authenticated` is a token rotation (D251). |
+| `ServerMessage` | `hello`, `paired`, `authenticated`, a revisioned `state` snapshot, `command_result`, `error`, `pong`, and `perf` to a connection that asked for it (D567). A `paired` after `authenticated` is a token rotation (D251). |
 | `negotiate`, `decode_client`, `ServerMessage::error` | Version 1 to `PROTOCOL_VERSION`, a bounded and validated decode (`MAX_MESSAGE_BYTES` 4096, `MAX_SECRET_LEN` 128), errors cut to `MAX_ERROR_LEN` (D236). |
-| `bridge::bridge(capacity)` | `(Remote, AppEnd)`: a bounded command queue with a reply per request, and a revisioned `Snapshot` (D232). |
+| `bridge::bridge(capacity)` | `(Remote, AppEnd)`: a bounded command queue with a reply per request, a revisioned `Snapshot` (D232), and one slot for the newest performance sample (`publish_perf`, `perf`, D567). |
+| `perf::PerfSample` | One second of the host's frame timing for the live feed (D567): frame rate, late and missed frames, worst gap, GPU and CPU time, scale, the control window's cost by part, and the slowed and not-foreground states. Tolerates fields it does not know, so a later host can add one. `line` and `csv_row` print it. |
 | `server::Server` | `start(ServerConfig, Remote, Clients)`, `stop`, `url`, `warning`, `advertising`, `pairing_requests`, `decide`, `connections`, `revoke`, `revoke_desktop`, `revoke_all`; `open_pairing` and `pairing_code` remain for the legacy code, which the app no longer opens. `Limits` holds every bound (D250, D252). |
 | `server::net` | `scope` (loopback, private, link-local, every interface, public), `lan_address`, `is_local_address` (D461), `host_matches`. |
 | `pairing::Pairing` | Requests waiting for Approve or Deny and their bounds (D468, D469); the legacy six-digit code, its attempt limit and expiry (D251). |
@@ -102,7 +103,11 @@ id made by [`trust::new_controller_id`](src/trust.rs), and reconnects with a
 
 The optional desktop extension adds `pair_desktop`, `desktop_open`,
 `desktop_input`, `desktop_frame` and `desktop_clipboard`; venue mode adds
-`trust_start`, `trust_challenge` and `trust_proof`. Original protocol
+`trust_start`, `trust_challenge` and `trust_proof`. The live performance feed (D567) adds
+`perf_open`, `perf_close` and `perf`: a desktop controller asks, needs no
+lease, and then gets one sample a second; a phone is refused, and nothing is
+sent to a connection that did not ask, since an older controller closes on a
+message type it does not know. Original protocol
 v1 messages retain their exact wire representation. A host without the
 extension refuses the new message instead of executing a partial command.
 Native tokens are held only in the controller process and use the same

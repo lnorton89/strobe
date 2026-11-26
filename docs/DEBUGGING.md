@@ -155,6 +155,36 @@ fullscreen output covers it, Windows hardly repaints it (the event loop
 redraws it at 2 Hz then, D290), so trust the log. To compare with an older
 run, grep the log for `perf:`.
 
+### Watching it live from another computer
+
+The same counting goes out once a second to a desktop controller that asks
+for it (D567). There are two ways to see it, and neither asks for the picture
+of the host's window, which would cost the host redraws of its own:
+
+- **The desktop viewer** (Settings > Remote > Connect by address, or
+  `--control`) shows a strip under its toolbar. It has the second's numbers
+  in the words of the `perf:` line and a one-minute trend of the frame rate
+  against the refresh rate. It turns the warning colour on a late or missed
+  frame, a slowed control window, or an output that lost the focus. The
+  viewer does stream the picture, so for numbers to compare, use the next
+  way.
+- **`strobe --watch-perf HOST:PORT --remote-trust FILE`** opens no window.
+  It proves the venue trust file, so the host needs `--remote
+  --allow-desktop-control --remote-trust FILE` (D288), and prints a line a
+  second until Ctrl+C or `--perf-seconds N`. `--perf-csv soak.csv` appends a
+  row per sample, flushed at once, for a spreadsheet. The Windows release
+  build has no console, so redirect its output (`> perf.txt`) or use the CSV.
+
+```bash
+strobe --watch-perf 192.168.1.50 --remote-trust venue.trust --perf-csv soak.csv --perf-seconds 1800
+```
+
+The live numbers and the minute's `perf:` line come from the same counting
+(`stats::PerfWindow`), so sixty seconds of samples add up to the minute's
+line. A watcher costs the host one message of about 400 bytes a second. A
+host from before D567 has no feed: the viewer goes without the strip, and
+`--watch-perf` says so and stops.
+
 ## GL problems
 
 1. Run with `STROBE_GL_DEBUG=1 STROBE_LOG=gl_driver=debug` and read the
