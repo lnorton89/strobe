@@ -95,6 +95,12 @@ pub struct Watch {
 }
 
 impl Watch {
+    /// Whether a loss is under way and was reported: the output has lacked
+    /// the focus past the grace period. The live feed carries it (D567).
+    pub fn away(&self) -> bool {
+        self.reported
+    }
+
     /// One check. `covers_control` is whether the output is shown
     /// fullscreen on the control window's monitor; `focus` is who has the
     /// keyboard focus.

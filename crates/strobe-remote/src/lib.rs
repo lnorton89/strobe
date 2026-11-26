@@ -21,6 +21,8 @@
 //!   command on its own thread through its ordinary command path.
 //! - **Pairing** ([`pairing`]), **paired clients** ([`clients`]) and their
 //!   **secrets** ([`secret`]) (D251).
+//! - The **performance feed** ([`perf`], D567): one sample a second of the
+//!   host's frame timing, for a desktop controller that asks.
 //! - **Discovery** ([`discovery`], D468): a host with the remote on answers
 //!   a LAN broadcast, so a controller can list it instead of typing it.
 //! - The **listener** ([`server`], D250, D252, D253): opt-in, bound to a
@@ -36,6 +38,7 @@ pub mod clients;
 pub mod desktop;
 pub mod discovery;
 pub mod pairing;
+pub mod perf;
 pub mod secret;
 pub mod server;
 pub mod trust;
@@ -57,6 +60,12 @@ pub const MIN_PROTOCOL_VERSION: u16 = 1;
 /// The largest client message [`decode_client`] reads, in bytes. Every
 /// message is a few dozen bytes; anything near this is not a client.
 pub const MAX_MESSAGE_BYTES: usize = 4096;
+
+/// The message of the `invalid_request` a host sends for a client message it
+/// cannot decode, such as a type it does not know. Every host so far sends
+/// exactly this text, so a controller that asked for something an older host
+/// lacks (D513, D567) can tell that answer from any other `invalid_request`.
+pub const NOT_UNDERSTOOD: &str = "that message was not understood";
 
 /// The longest pairing code or token accepted, in bytes.
 pub const MAX_SECRET_LEN: usize = 128;
@@ -168,6 +177,12 @@ pub enum ClientMessage {
         /// A bounded batch, applied in order.
         edits: Vec<desktop::ControlEdit>,
     },
+    /// A desktop controller asks for the live performance feed (D567). The
+    /// host answers with `perf` once a second; a host from before D567
+    /// answers `invalid_request`, and the controller goes without.
+    PerfOpen {},
+    /// Stop the performance feed on this connection.
+    PerfClose {},
 }
 
 /// Commands intentionally exposed to a paired phone or tablet.
@@ -340,6 +355,14 @@ pub enum ServerMessage {
         /// One per control row drawn and visible.
         rows: Vec<desktop::ControlRow>,
     },
+    /// One sample of the host's frame timing (D567), sent once a second to
+    /// a connection that sent `perf_open`, and to no other.
+    Perf {
+        /// Moves with every sample the host publishes.
+        revision: u64,
+        /// The window's numbers.
+        sample: perf::PerfSample,
+    },
 }
 
 /// Audio state as displayed by the remote.
@@ -417,6 +440,7 @@ pub fn decode_client(text: &str) -> Result<ClientMessage, ErrorCode> {
         ClientMessage::TrustProof { response } => trust::valid_hex_block(response),
         ClientMessage::DesktopControlsOpen {} => true,
         ClientMessage::DesktopControl { edits } => desktop::valid_edits(edits),
+        ClientMessage::PerfOpen {} | ClientMessage::PerfClose {} => true,
     };
     if valid {
         Ok(message)
@@ -728,6 +752,36 @@ mod tests {
             r#"{"type":"desktop_control","edits":[{"bank":1,"index":0,"values":[0],"x":1}]}"#,
             r#"{"type":"desktop_controls_open","x":1}"#,
             many.as_str(),
+        ] {
+            assert_eq!(
+                decode_client(bad).err(),
+                Some(ErrorCode::InvalidRequest),
+                "{bad}"
+            );
+        }
+        Ok(())
+    }
+
+    /// The performance feed (D567), frozen like the others.
+    const PERF_CLIENT: [&str; 2] = [r#"{"type":"perf_open"}"#, r#"{"type":"perf_close"}"#];
+
+    const PERF_SERVER: [&str; 1] = [
+        r#"{"type":"perf","revision":9,"sample":{"window_ms":1000,"fps":59.9,"frames":60,"late":0,"missed":1,"worst_gap_ms":33.4,"gpu_ms":2.1,"cpu_ms":1.25,"budget_ms":16.67,"scale":0.85,"adaptive":true,"control":{"redraws":30,"mean_ms":2.4,"worst_ms":6.1,"unpainted":0,"make_current_ms":0.1,"layout_ms":1.2,"paint_ms":0.8,"swap_ms":0.3},"control_slowed":false,"output_not_foreground":false}}"#,
+    ];
+
+    #[test]
+    fn perf_messages_read_and_write_byte_for_byte_and_are_validated() -> Result<()> {
+        for text in PERF_CLIENT {
+            let message = decode_client(text).map_err(|e| anyhow::anyhow!("{text}: {e:?}"))?;
+            assert_eq!(serde_json::to_string(&message)?, text, "client {text}");
+        }
+        for text in PERF_SERVER {
+            let message: ServerMessage = serde_json::from_str(text)?;
+            assert_eq!(serde_json::to_string(&message)?, text, "server {text}");
+        }
+        for bad in [
+            r#"{"type":"perf_open","rate":10}"#,
+            r#"{"type":"perf_close","x":1}"#,
         ] {
             assert_eq!(
                 decode_client(bad).err(),
