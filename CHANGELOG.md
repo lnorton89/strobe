@@ -13,6 +13,36 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 Nothing yet — the latest release is the tip of `master`.
 
+## [0.5.0] - 2026-11-27
+
+### Added
+
+- NDI and Spout output and input, verified in OBS and NDI Tools (D570-D575, M-06, M-07) (#123) ([`6f0554b`](https://github.com/lnorton89/strobe/commit/6f0554be14b2f6ea0bf99598137c9e4b89ba4fd5))
+- a shared scene's link shows a frame of the scene and its title (D565) (#118) ([`3c49b93`](https://github.com/lnorton89/strobe/commit/3c49b93fab6026006af8c57d64999881eb0f1d22))
+- live performance feed for a watching controller, and strobe --watch-perf (D567, L-10) (#121) ([`94638a2`](https://github.com/lnorton89/strobe/commit/94638a2745f9a339994d4d7e7493d986523ef504))
+- one pipeline for scenes made from a photo ([`b686306`](https://github.com/lnorton89/strobe/commit/b686306da9632c04a56a3ba3b62a2a19ba57b11b))
+
+### Fixed
+
+- local time comes from jiff; chrono is unmaintained (D566) (#120) ([`901156c`](https://github.com/lnorton89/strobe/commit/901156c9aefa6b47ebbcbe738ae2eb1e374205ae))
+- the forge reads the dialect child's pipes, keeps the standing scene on an API error, and warns over the timing budget ([`5455b69`](https://github.com/lnorton89/strobe/commit/5455b697274c9f4b610d3085d278e16102a598cd))
+
+### Documentation
+
+- the scene-from-image skill learns coats, thick paint and the hand-over sweep ([`3051b06`](https://github.com/lnorton89/strobe/commit/3051b06a98c4f46f2da1fe2e22e6a3909f133eac))
+- the scene-from-image skill shares a scene as a short /s/ link ([`369326d`](https://github.com/lnorton89/strobe/commit/369326dd4593944aa947487d4ed44561a432daeb))
+
+### Internal
+
+- version 0.5.0 ([`91b2620`](https://github.com/lnorton89/strobe/commit/91b2620d5383f7f8c30b62b38193163a8098fe12))
+- **deps:** bump the cargo-patch group across 1 directory with 5 updates (#124) ([`b37ae50`](https://github.com/lnorton89/strobe/commit/b37ae5077f15d523de3209577d7a36866f1f130b))
+- **deps:** bump the github-actions group across 1 directory with 3 updates (#117) ([`ef41eac`](https://github.com/lnorton89/strobe/commit/ef41eacd27d4ccf984173703c3919349f133a5a5))
+- clear the cargo-deny advisories and the site job's onnxruntime 404 (D568, D569) (#122) ([`c7ca06b`](https://github.com/lnorton89/strobe/commit/c7ca06b7c52461c4dd9899d61e36366c3b3ad055))
+
+### Tests
+
+- the long-output child gets tr's \0 as text, not a NUL byte Command refuses ([`bcf77a5`](https://github.com/lnorton89/strobe/commit/bcf77a568eb4eb19333ad712c241e1108f95636a))
+
 ## [0.4.0] - 2026-11-11
 
 ### Added
@@ -927,7 +957,8 @@ Nothing yet — the latest release is the tip of `master`.
 - snapshot after usage-limit interruption ([`2bc621b`](https://github.com/lnorton89/strobe/commit/2bc621bcc4eb79d6aa86421cf371a9921c91caf1))
 - snapshot after usage-limit interruption ([`58e9dd9`](https://github.com/lnorton89/strobe/commit/58e9dd96d29e4bb4f2951e553da57788399022b9))
 
-[Unreleased]: https://github.com/lnorton89/strobe/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/lnorton89/strobe/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/lnorton89/strobe/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/lnorton89/strobe/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/lnorton89/strobe/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/lnorton89/strobe/compare/v0.1.0...v0.2.0
