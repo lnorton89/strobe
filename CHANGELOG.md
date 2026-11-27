@@ -17,14 +17,16 @@ Nothing yet — the latest release is the tip of `master`.
 
 ### Added
 
-- NDI and Spout output and input, verified in OBS and NDI Tools (D570-D575, M-06, M-07) (#123) ([`6f0554b`](https://github.com/lnorton89/strobe/commit/6f0554be14b2f6ea0bf99598137c9e4b89ba4fd5))
-- a shared scene's link shows a frame of the scene and its title (D565) (#118) ([`3c49b93`](https://github.com/lnorton89/strobe/commit/3c49b93fab6026006af8c57d64999881eb0f1d22))
-- live performance feed for a watching controller, and strobe --watch-perf (D567, L-10) (#121) ([`94638a2`](https://github.com/lnorton89/strobe/commit/94638a2745f9a339994d4d7e7493d986523ef504))
+- NDI and Spout output and input, verified in OBS and NDI Tools (D570-D575, M-06, M-07) (#123) ([`948fcf1`](https://github.com/lnorton89/strobe/commit/948fcf10f5ebff0d2fa58a8dbb398b1770b35fd5))
+- a shared scene's link shows a frame of the scene and its title (D565) (#118) ([`b68290d`](https://github.com/lnorton89/strobe/commit/b68290d07b4c9d5ab62a6e627c31138d5012742f))
+- live performance feed for a watching controller, and strobe --watch-perf (D567, L-10) (#121) ([`02ea72f`](https://github.com/lnorton89/strobe/commit/02ea72f6cbf892caf7a965ef012781ab121f5046))
 - one pipeline for scenes made from a photo ([`b686306`](https://github.com/lnorton89/strobe/commit/b686306da9632c04a56a3ba3b62a2a19ba57b11b))
 
 ### Fixed
 
-- local time comes from jiff; chrono is unmaintained (D566) (#120) ([`901156c`](https://github.com/lnorton89/strobe/commit/901156c9aefa6b47ebbcbe738ae2eb1e374205ae))
+- **input:** a paused Spout sender that resizes reads black, not its old picture at the new width (M-07) ([`aba298b`](https://github.com/lnorton89/strobe/commit/aba298bdbd52a7b293c367dafc1335a4fba336fd))
+- **output:** Settings keeps flag-started senders, paused Spout input shows, size failures clear (M-06, M-07) ([`7a6c0fb`](https://github.com/lnorton89/strobe/commit/7a6c0fb9c003c1017477f84430c5819476100e74))
+- local time comes from jiff; chrono is unmaintained (D566) (#120) ([`7559ec7`](https://github.com/lnorton89/strobe/commit/7559ec75b951a374cdd9b4d75cf3a32fc95d8f45))
 - the forge reads the dialect child's pipes, keeps the standing scene on an API error, and warns over the timing budget ([`5455b69`](https://github.com/lnorton89/strobe/commit/5455b697274c9f4b610d3085d278e16102a598cd))
 
 ### Documentation
@@ -34,14 +36,14 @@ Nothing yet — the latest release is the tip of `master`.
 
 ### Internal
 
-- version 0.5.0 ([`91b2620`](https://github.com/lnorton89/strobe/commit/91b2620d5383f7f8c30b62b38193163a8098fe12))
-- **deps:** bump the cargo-patch group across 1 directory with 5 updates (#124) ([`b37ae50`](https://github.com/lnorton89/strobe/commit/b37ae5077f15d523de3209577d7a36866f1f130b))
-- **deps:** bump the github-actions group across 1 directory with 3 updates (#117) ([`ef41eac`](https://github.com/lnorton89/strobe/commit/ef41eacd27d4ccf984173703c3919349f133a5a5))
-- clear the cargo-deny advisories and the site job's onnxruntime 404 (D568, D569) (#122) ([`c7ca06b`](https://github.com/lnorton89/strobe/commit/c7ca06b7c52461c4dd9899d61e36366c3b3ad055))
+- version 0.5.0 ([`94d378f`](https://github.com/lnorton89/strobe/commit/94d378f30718fa470c74825051c26466556805fd))
+- **deps:** bump the cargo-patch group across 1 directory with 5 updates (#124) ([`7977f07`](https://github.com/lnorton89/strobe/commit/7977f078955cfd2332927f745af7762830b43df7))
+- **deps:** bump the github-actions group across 1 directory with 3 updates (#117) ([`bd0540b`](https://github.com/lnorton89/strobe/commit/bd0540bdaae18f76db5b18d8b7647b8c9527b416))
+- clear the cargo-deny advisories and the site job's onnxruntime 404 (D568, D569) (#122) ([`9596ba6`](https://github.com/lnorton89/strobe/commit/9596ba6f7382d9d5480f59cb37a582f3f12406a0))
 
 ### Tests
 
-- the long-output child gets tr's \0 as text, not a NUL byte Command refuses ([`bcf77a5`](https://github.com/lnorton89/strobe/commit/bcf77a568eb4eb19333ad712c241e1108f95636a))
+- the long-output child gets tr's \0 as text, not a NUL byte Command refuses ([`f65a4c3`](https://github.com/lnorton89/strobe/commit/f65a4c350c1585ff3121beb9dc67254bc294c7a7))
 
 ## [0.4.0] - 2026-11-11
 

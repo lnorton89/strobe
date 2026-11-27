@@ -58,6 +58,7 @@ use super::form::{self, Row};
 use super::icon as icons;
 use super::keys::{self, HotkeyEditor};
 use super::model::{Action, Model};
+use super::state::SharingEdit;
 use super::theme::{self, RADIUS, SPACE_LG, SPACE_SM, SPACE_XS};
 use super::widgets;
 use crate::commands::{Bindings, Chord, CommandId};
@@ -792,7 +793,8 @@ const NDI_RATES: [u32; 5] = [0, 60, 50, 30, 25];
 /// The Sharing group (D573): Spout and NDI, each with its name, then NDI's
 /// options, the shared size, the link NDI's licence asks for beside the
 /// choice, and the app's line on what is going out. Every change is one
-/// [`Action::SetSharing`] with the whole choice, applied at once and saved.
+/// [`Action::SetSharing`] naming the one field changed, applied at once to
+/// what is shared and saved, so a sender a flag turned on stays on.
 fn sharing(
     ui: &mut Ui,
     theme: &Palette,
@@ -800,8 +802,7 @@ fn sharing(
     actions: &mut Vec<Action>,
 ) {
     form::group(ui, theme, "Sharing", |group| {
-        let saved = state.saved.clone();
-        let mut chosen: Option<crate::prefs::SharingPref> = None;
+        let mut chosen: Option<SharingEdit> = None;
         let mut spout = state.live.spout;
         let mut row = Row::new(SPOUT).description(
             "Publishes the picture to Spout, so Resolume, OBS, TouchDesigner, MadMapper or Notch \
@@ -816,18 +817,14 @@ fn sharing(
             row = row.note(&state.status, theme.text_muted);
         }
         if group.toggle(row, &mut spout).changed() {
-            let mut next = saved.clone();
-            next.spout = spout;
-            chosen = Some(next);
+            chosen = Some(SharingEdit::Spout(spout));
         }
         group.row(
             Row::new(SPOUT_NAME).description("What a Spout receiver lists. Enter applies it."),
             |ui| {
                 let field = form::field(ui, theme, &mut state.spout_draft, "Strobe", 200.0);
-                if field.lost_focus() && commit(&state.spout_draft, &saved.spout_name) {
-                    let mut next = saved.clone();
-                    state.spout_draft.trim().clone_into(&mut next.spout_name);
-                    chosen = Some(next);
+                if field.lost_focus() && commit(&state.spout_draft, &state.live.spout_name) {
+                    chosen = Some(SharingEdit::SpoutName(state.spout_draft.trim().to_owned()));
                 }
             },
         );
@@ -840,18 +837,11 @@ fn sharing(
         group.row(clean_row, |ui| {
             ui.horizontal(|ui| {
                 if form::toggle(ui, theme, &mut clean).changed() {
-                    let mut next = saved.clone();
-                    next.spout_clean = clean;
-                    chosen = Some(next);
+                    chosen = Some(SharingEdit::Clean(clean));
                 }
                 let field = form::field(ui, theme, &mut state.clean_draft, "Strobe Clean", 160.0);
-                if field.lost_focus() && commit(&state.clean_draft, &saved.spout_clean_name) {
-                    let mut next = saved.clone();
-                    state
-                        .clean_draft
-                        .trim()
-                        .clone_into(&mut next.spout_clean_name);
-                    chosen = Some(next);
+                if field.lost_focus() && commit(&state.clean_draft, &state.live.spout_clean_name) {
+                    chosen = Some(SharingEdit::CleanName(state.clean_draft.trim().to_owned()));
                 }
             });
         });
@@ -866,9 +856,7 @@ fn sharing(
             row = row.note(&state.ndi_note, theme.warning);
         }
         if group.toggle(row, &mut ndi).changed() {
-            let mut next = saved.clone();
-            next.ndi = ndi;
-            chosen = Some(next);
+            chosen = Some(SharingEdit::Ndi(ndi));
         }
         group.row(
             Row::new(NDI_NAME).description(
@@ -876,10 +864,8 @@ fn sharing(
             ),
             |ui| {
                 let field = form::field(ui, theme, &mut state.ndi_draft, "Strobe", 200.0);
-                if field.lost_focus() && commit(&state.ndi_draft, &saved.ndi_name) {
-                    let mut next = saved.clone();
-                    state.ndi_draft.trim().clone_into(&mut next.ndi_name);
-                    chosen = Some(next);
+                if field.lost_focus() && commit(&state.ndi_draft, &state.live.ndi_name) {
+                    chosen = Some(SharingEdit::NdiName(state.ndi_draft.trim().to_owned()));
                 }
             },
         );
@@ -890,10 +876,8 @@ fn sharing(
             ),
             |ui| {
                 let field = form::field(ui, theme, &mut state.groups_draft, "Public", 200.0);
-                if field.lost_focus() && state.groups_draft.trim() != saved.ndi_groups {
-                    let mut next = saved.clone();
-                    state.groups_draft.trim().clone_into(&mut next.ndi_groups);
-                    chosen = Some(next);
+                if field.lost_focus() && state.groups_draft.trim() != state.live.ndi_groups {
+                    chosen = Some(SharingEdit::NdiGroups(state.groups_draft.trim().to_owned()));
                 }
             },
         );
@@ -911,9 +895,7 @@ fn sharing(
                                 .selectable_label(state.live.ndi_fps == rate, rate_label(rate))
                                 .clicked()
                             {
-                                let mut next = saved.clone();
-                                next.ndi_fps = rate;
-                                chosen = Some(next);
+                                chosen = Some(SharingEdit::NdiFps(rate));
                             }
                         }
                     });
@@ -935,9 +917,7 @@ fn sharing(
                                 .selectable_label(state.live.size == size, size_label(size))
                                 .clicked()
                             {
-                                let mut next = saved.clone();
-                                next.size = size;
-                                chosen = Some(next);
+                                chosen = Some(SharingEdit::Size(size));
                             }
                         }
                     });

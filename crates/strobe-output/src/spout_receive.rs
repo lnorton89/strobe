@@ -313,6 +313,10 @@ mod imp {
         size: Option<(u32, u32)>,
         /// Whether a read has ever found the sender, for the failure's words.
         found: bool,
+        /// The buffer was made for a new size and no picture has been handed
+        /// over at it yet: the next whole read is, new frame or not, so a
+        /// paused sender still shows rather than reading as stalled.
+        unshown: bool,
     }
 
     impl std::fmt::Debug for Receiver {
@@ -345,6 +349,7 @@ mod imp {
                 object,
                 size: None,
                 found: false,
+                unshown: true,
             })
         }
 
@@ -380,9 +385,10 @@ mod imp {
                 self.fit(pixels)?;
                 return Ok(None);
             }
-            if !flag(self.frame_new, object) {
+            if !flag(self.frame_new, object) && !self.unshown {
                 return Ok(None);
             }
+            self.unshown = false;
             Ok(Some(Received {
                 width,
                 height,
@@ -403,6 +409,13 @@ mod imp {
                     "the sender reports a {}x{} picture, which Strobe cannot show",
                     size.0, size.1
                 )));
+            }
+            if self.size != Some(size) {
+                // Spout writes nothing for a read with no new frame, as from
+                // a paused sender, so a buffer kept from the old size would
+                // show its bytes at the new width. Black until a frame comes.
+                pixels.clear();
+                self.unshown = true;
             }
             pixels.resize(size.0 as usize * size.1 as usize * 4, 0);
             self.size = Some(size);

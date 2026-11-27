@@ -4697,8 +4697,8 @@ impl Running {
                     );
                 }
                 Action::SetPrerender(on) => self.set_prerender(on),
-                Action::SetSharing(pref) => {
-                    self.ui_state.sharing.choose(pref);
+                Action::SetSharing(edit) => {
+                    self.ui_state.sharing.choose(edit);
                     self.apply_sharing();
                 }
                 Action::SetAdaptive(on) => {

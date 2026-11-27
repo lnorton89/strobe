@@ -302,6 +302,10 @@ mod imp {
                      the PATH; install Spout from spout.zeal.co",
                 )
             })?;
+            // Before the object exists: an error after `GetSpout` would leave
+            // its object, and its Direct3D device, never released.
+            let name = CString::new(name)
+                .map_err(|_| Problem::new("a Spout sender's name cannot contain a zero byte"))?;
             let library = load_library(&path)?;
             let get_spout: GetSpoutFn = export(&library, GET_SPOUT)?;
             let object = spout_object(get_spout);
@@ -321,8 +325,6 @@ mod imp {
             let width_of = method(vtable, GET_WIDTH);
             let height_of = method(vtable, GET_HEIGHT);
             let fps_of = method(vtable, GET_FPS);
-            let name = CString::new(name)
-                .map_err(|_| Problem::new("a Spout sender's name cannot contain a zero byte"))?;
             Ok(Self {
                 _library: library,
                 object: object as usize,

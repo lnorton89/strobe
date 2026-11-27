@@ -270,6 +270,46 @@ pub struct SharingUi {
     pub status: String,
 }
 
+/// One change Settings made to the sharing choice.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SharingEdit {
+    /// The Spout sender on or off.
+    Spout(bool),
+    /// The Spout sender's name.
+    SpoutName(String),
+    /// The clean feed on or off (D574).
+    Clean(bool),
+    /// The clean feed's name.
+    CleanName(String),
+    /// The NDI sender on or off.
+    Ndi(bool),
+    /// The NDI sender's name.
+    NdiName(String),
+    /// The NDI groups.
+    NdiGroups(String),
+    /// The NDI frame-rate cap; 0 for every frame.
+    NdiFps(u32),
+    /// The shared size, or `None` for the picture's own.
+    Size(Option<[u32; 2]>),
+}
+
+impl SharingEdit {
+    /// Sets this one field of `pref`.
+    pub fn apply(self, pref: &mut crate::prefs::SharingPref) {
+        match self {
+            Self::Spout(on) => pref.spout = on,
+            Self::SpoutName(name) => pref.spout_name = name,
+            Self::Clean(on) => pref.spout_clean = on,
+            Self::CleanName(name) => pref.spout_clean_name = name,
+            Self::Ndi(on) => pref.ndi = on,
+            Self::NdiName(name) => pref.ndi_name = name,
+            Self::NdiGroups(groups) => pref.ndi_groups = groups,
+            Self::NdiFps(fps) => pref.ndi_fps = fps,
+            Self::Size(size) => pref.size = size,
+        }
+    }
+}
+
 impl SharingUi {
     /// The state for `saved`, with the text fields showing it.
     pub fn from_saved(saved: crate::prefs::SharingPref) -> Self {
@@ -282,10 +322,12 @@ impl SharingUi {
         state
     }
 
-    /// Settings chose `pref`: it is saved and shared from now on.
-    pub fn choose(&mut self, pref: crate::prefs::SharingPref) {
-        self.saved = pref.clone();
-        self.live = pref;
+    /// Settings changed one field: it is saved, and shared from now on. Only
+    /// that field moves in what is shared, so a sender a command-line flag
+    /// turned on (and never saved, D573) stays on.
+    pub fn choose(&mut self, edit: SharingEdit) {
+        edit.clone().apply(&mut self.saved);
+        edit.apply(&mut self.live);
         self.reset_drafts();
     }
 
@@ -741,6 +783,21 @@ mod tests {
                 .map(|n| Entry::new((*n).to_string(), PathBuf::from(n)))
                 .collect(),
         }
+    }
+
+    #[test]
+    fn a_settings_change_keeps_a_sender_a_flag_turned_on() {
+        let mut sharing = SharingUi::from_saved(crate::prefs::SharingPref::default());
+        // `--spout Mix`: on for this run, never saved (D573).
+        sharing.live.spout = true;
+        "Mix".clone_into(&mut sharing.live.spout_name);
+        sharing.choose(SharingEdit::NdiFps(30));
+        assert!(sharing.live.spout, "the flag's Spout sender stays on");
+        assert_eq!(sharing.live.spout_name, "Mix", "under the flag's name");
+        assert_eq!(sharing.live.ndi_fps, 30, "the change is shared");
+        assert_eq!(sharing.saved.ndi_fps, 30, "and saved");
+        assert!(!sharing.saved.spout, "the flag is still not saved");
+        assert_eq!(sharing.spout_draft, "Mix", "the field shows what is live");
     }
 
     #[test]
