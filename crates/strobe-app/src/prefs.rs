@@ -154,6 +154,8 @@ pub struct Prefs {
     pub synesthesia: SynesthesiaPref,
     /// Prerendering the library's scenes (D542).
     pub prerender: PrerenderPref,
+    /// Sharing the output through Spout and NDI (D573).
+    pub sharing: SharingPref,
     /// Controlling another Strobe (D294): the trust file's path and this
     /// laptop's controller id.
     pub remote: RemotePref,
@@ -173,6 +175,51 @@ pub struct RemotePref {
     /// kept, so the host can tell this laptop from another and revoke it by
     /// name. Empty until the first launch makes one.
     pub controller_id: String,
+}
+
+/// Sharing the output with other programs (D570, D573): the two senders,
+/// the names receivers list, and how the picture is sized and paced. Saved,
+/// as every VJ tool saves it; `--spout` and friends override it for one run
+/// without being written back.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SharingPref {
+    /// Publish through Spout (Windows).
+    pub spout: bool,
+    /// The name Spout receivers list.
+    pub spout_name: String,
+    /// Publish a second Spout sender with the picture before the post stage,
+    /// never blacked out (D574).
+    pub spout_clean: bool,
+    /// The clean feed's name.
+    pub spout_clean_name: String,
+    /// Send over NDI.
+    pub ndi: bool,
+    /// The name NDI receivers list (NDI prefixes the computer's name).
+    pub ndi_name: String,
+    /// NDI groups, comma-separated; empty for the default group.
+    pub ndi_groups: String,
+    /// The most frames a second NDI sends; 0 sends every frame.
+    pub ndi_fps: u32,
+    /// The shared picture's size; `None` follows the picture's own.
+    pub size: Option<[u32; 2]>,
+}
+
+impl Default for SharingPref {
+    /// Both off, named for the program, every frame at the picture's size.
+    fn default() -> Self {
+        Self {
+            spout: false,
+            spout_name: "Strobe".to_string(),
+            spout_clean: false,
+            spout_clean_name: "Strobe Clean".to_string(),
+            ndi: false,
+            ndi_name: "Strobe".to_string(),
+            ndi_groups: String::new(),
+            ndi_fps: 0,
+            size: None,
+        }
+    }
 }
 
 /// Whether the library's scenes are prerendered at launch and when the
@@ -356,6 +403,7 @@ impl Prefs {
             library_page: String::new(),
             synesthesia: SynesthesiaPref::default(),
             prerender: PrerenderPref::default(),
+            sharing: SharingPref::default(),
             remote: RemotePref::default(),
         }
     }

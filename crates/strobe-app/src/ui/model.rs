@@ -206,6 +206,9 @@ pub enum Action {
     NewSong,
     /// Turn adaptive resolution on or off.
     SetAdaptive(bool),
+    /// Share the output as this says, through Spout and NDI, and save it
+    /// (D573).
+    SetSharing(crate::prefs::SharingPref),
     /// Prerender the library's scenes, or stop and let them go (D542).
     /// Applied at once and saved.
     SetPrerender(bool),

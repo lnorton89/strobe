@@ -242,6 +242,62 @@ impl Default for SynesthesiaState {
 /// How many recent playlists are kept (D481).
 pub const RECENT_PLAYLISTS: usize = 5;
 
+/// Sharing the output through Spout and NDI (D570, D573).
+///
+/// `saved` is what Settings chose and what is written to the preferences;
+/// `live` is what this run shares, which is `saved` with `--spout`, `--ndi`
+/// and friends laid over it, so a launcher's flags never overwrite the
+/// operator's choice. A change in Settings sets both.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SharingUi {
+    /// What Settings chose: saved.
+    pub saved: crate::prefs::SharingPref,
+    /// What this run shares: `saved` and the command line.
+    pub live: crate::prefs::SharingPref,
+    /// The Spout name as it is being typed, until Enter or a click away.
+    pub spout_draft: String,
+    /// The clean feed's name as it is being typed.
+    pub clean_draft: String,
+    /// The NDI name as it is being typed.
+    pub ndi_draft: String,
+    /// The NDI groups as they are being typed.
+    pub groups_draft: String,
+    /// What Spout said when it would not open, or stopped. Not saved.
+    pub spout_note: String,
+    /// What NDI said when it would not open, or stopped. Not saved.
+    pub ndi_note: String,
+    /// One line on what is being shared, refreshed by the app. Not saved.
+    pub status: String,
+}
+
+impl SharingUi {
+    /// The state for `saved`, with the text fields showing it.
+    pub fn from_saved(saved: crate::prefs::SharingPref) -> Self {
+        let mut state = Self {
+            live: saved.clone(),
+            saved,
+            ..Self::default()
+        };
+        state.reset_drafts();
+        state
+    }
+
+    /// Settings chose `pref`: it is saved and shared from now on.
+    pub fn choose(&mut self, pref: crate::prefs::SharingPref) {
+        self.saved = pref.clone();
+        self.live = pref;
+        self.reset_drafts();
+    }
+
+    /// The text fields show what is live again.
+    pub fn reset_drafts(&mut self) {
+        self.spout_draft.clone_from(&self.live.spout_name);
+        self.clean_draft.clone_from(&self.live.spout_clean_name);
+        self.ndi_draft.clone_from(&self.live.ndi_name);
+        self.groups_draft.clone_from(&self.live.ndi_groups);
+    }
+}
+
 /// Everything about the control window's presentation that is the
 /// operator's to keep.
 pub struct UiState {
@@ -275,8 +331,9 @@ pub struct UiState {
     pub browser_tag_draft: Option<super::tags::TagDraft>,
     /// The Inspector's media path field while it is open (D217). Not saved.
     pub media_draft: Option<String>,
-    /// The Inspector's camera list while it is open (D528). Not saved.
-    pub cameras: Option<crate::camera::Listing>,
+    /// The Inspector's list of cameras, Spout senders or NDI sources while
+    /// it is open (D528, D575). Not saved.
+    pub live_list: Option<crate::live::Listing>,
     /// The generated-controls review's edits, one per proposed control
     /// (D219). Not saved.
     pub generate_review: Vec<crate::generate::Review>,
@@ -300,6 +357,8 @@ pub struct UiState {
     pub synesthesia: SynesthesiaState,
     /// Prerendering the library's scenes (D542): the switch is saved.
     pub prerender: PrerenderState,
+    /// Sharing the output through Spout and NDI (D570).
+    pub sharing: SharingUi,
     /// What the "Control another Strobe" form remembers (D294). Saved.
     pub remote: crate::prefs::RemotePref,
     /// The Settings pane's layout name field. Not saved.
@@ -361,6 +420,7 @@ impl UiState {
         crate::motion::set_reduced(prefs.reduced_motion || env_reduced);
         let mut state = Self {
             panes: prefs.to_panes(),
+            sharing: SharingUi::from_saved(prefs.sharing.clone()),
             browser: BrowserState {
                 query: prefs.browser.query.clone(),
                 filter: HealthFilter::from_key(&prefs.browser.filter),
@@ -385,7 +445,7 @@ impl UiState {
             import_tag_draft: None,
             browser_tag_draft: None,
             media_draft: None,
-            cameras: None,
+            live_list: None,
             generate_review: Vec::new(),
             macro_keys_held: Vec::new(),
             hotkeys: super::keys::HotkeyEditor::default(),
@@ -454,6 +514,7 @@ impl UiState {
         prefs.prerender = crate::prefs::PrerenderPref {
             enabled: self.prerender.enabled,
         };
+        prefs.sharing.clone_from(&self.sharing.saved);
         prefs.remote.clone_from(&self.remote);
         prefs
     }
@@ -611,6 +672,7 @@ impl UiState {
         self.scene_folders.folders.hash(&mut hasher);
         self.synesthesia.show.hash(&mut hasher);
         self.prerender.enabled.hash(&mut hasher);
+        self.sharing.saved.hash(&mut hasher);
         self.remote.trust_file.hash(&mut hasher);
         self.remote.use_trust.hash(&mut hasher);
         self.remote.controller_id.hash(&mut hasher);

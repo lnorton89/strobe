@@ -132,6 +132,32 @@ pub struct Cli {
     /// or the monitor picker (D96).
     #[arg(long)]
     pub show_output: bool,
+    /// Share the output through Spout (Windows only) under this name, which
+    /// a receiver such as Resolume or OBS lists (D570, D573). For this run
+    /// only: Settings > Output > Sharing is what is saved.
+    #[arg(long, value_name = "NAME")]
+    pub spout: Option<String>,
+    /// Also publish a clean feed through Spout under this name: the picture
+    /// before the output's look and mirrors, never blacked out (D574). For
+    /// this run only.
+    #[arg(long, value_name = "NAME")]
+    pub spout_clean: Option<String>,
+    /// Share the output over the network through NDI under this name, which
+    /// a receiver such as NDI Studio Monitor lists (D570, D573). For this run
+    /// only. Needs the NDI 6 runtime, from NDI Tools at ndi.video/tools.
+    #[arg(long, value_name = "NAME")]
+    pub ndi: Option<String>,
+    /// The NDI groups to send in, comma-separated (D573). For this run only.
+    #[arg(long, value_name = "GROUPS")]
+    pub ndi_groups: Option<String>,
+    /// The most frames a second NDI sends, 0 for every frame (D573). For
+    /// this run only.
+    #[arg(long, value_name = "FPS")]
+    pub ndi_fps: Option<u32>,
+    /// The size Spout and NDI share the picture at, as WIDTHxHEIGHT, or
+    /// `picture` to follow the picture's own (D573). For this run only.
+    #[arg(long, value_name = "WxH", value_parser = parse_share_size)]
+    pub share_size: Option<ShareSize>,
     /// Put the output fullscreen at launch: on `--output-monitor` if given,
     /// else on the monitor the output window opens on. For a venue
     /// autostart, where nobody is there to press F11.
@@ -160,6 +186,15 @@ pub struct Cli {
     /// "camera:<name>"` takes, and how long listing took; then exit (D528).
     #[arg(long)]
     pub list_cameras: bool,
+    /// Print the Spout senders running on this machine, by the names
+    /// `--media "spout:<name>"` takes; then exit (D575).
+    #[arg(long)]
+    pub list_spout: bool,
+    /// Print the NDI sources found on the network (waiting up to two
+    /// seconds for the first), by the names `--media "ndi:<name>"` takes;
+    /// then exit (D575).
+    #[arg(long)]
+    pub list_ndi: bool,
     /// Open these panes at launch (comma separated): `browser`, `controls`,
     /// `import`, `inspector`, `diagnostics`, `settings`, or `settings:<page>`
     /// for one page of Settings (`settings:audio`). Added to whatever the
@@ -189,7 +224,9 @@ pub struct Cli {
     /// scene loaded by hand, in place of the scene's own `MEDIA`. It is
     /// decoded off the frame thread. Scenes a playlist plays keep their own.
     /// `camera:<name>` shows that webcam instead, by the name
-    /// `--list-cameras` prints (D528).
+    /// `--list-cameras` prints (D528); `spout:<name>` a Spout sender and
+    /// `ndi:<name>` an NDI source, by the names `--list-spout` and
+    /// `--list-ndi` print (D575).
     #[arg(long, value_name = "PATH")]
     pub media: Option<PathBuf>,
     /// In screenshot mode, ask for this scene to be loaded through the UI's
@@ -398,7 +435,37 @@ fn parse_size(text: &str) -> Result<(u32, u32), String> {
     Ok((w, h))
 }
 
+/// What `--share-size` asks for: the picture's own size, or a fixed one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShareSize {
+    /// Follow the picture.
+    Picture,
+    /// Always this many pixels.
+    Fixed(u32, u32),
+}
+
+/// Parses `picture` or `1920x1080`.
+fn parse_share_size(text: &str) -> Result<ShareSize, String> {
+    if text.trim().eq_ignore_ascii_case("picture") {
+        return Ok(ShareSize::Picture);
+    }
+    parse_size(text).map(|(w, h)| ShareSize::Fixed(w, h))
+}
+
 impl Cli {
+    /// The kind of live source to list and exit, if one was asked for
+    /// (`--list-cameras`, `--list-spout`, `--list-ndi`; the first wins).
+    pub fn list_live(&self) -> Option<strobe_scene::live::Kind> {
+        use strobe_scene::live::Kind;
+        [
+            (self.list_cameras, Kind::Camera),
+            (self.list_spout, Kind::Spout),
+            (self.list_ndi, Kind::Ndi),
+        ]
+        .into_iter()
+        .find_map(|(asked, kind)| asked.then_some(kind))
+    }
+
     /// Whether a library that cannot be read is no fault: this run controls
     /// another Strobe (`--control`) and was not pointed at a library, so the
     /// default `scenes` folder (resolved against the working directory) has
@@ -430,6 +497,60 @@ mod tests {
         assert_eq!(cli.library, PathBuf::from("scenes"), "library");
         assert_eq!(cli.gl, GlArg::Auto, "backend");
         assert!(cli.screenshot.is_none(), "no screenshot");
+        Ok(())
+    }
+
+    #[test]
+    fn sharing_flags_name_a_sender_and_are_off_by_default() -> Result<()> {
+        let cli = Cli::try_parse_from(["strobe"])?;
+        assert!(cli.spout.is_none(), "no Spout unless asked");
+        assert!(cli.ndi.is_none(), "no NDI unless asked");
+        let cli = Cli::try_parse_from(["strobe", "--spout", "Mix", "--ndi", "Strobe Out"])?;
+        assert_eq!(
+            cli.spout.as_deref(),
+            Some("Mix"),
+            "--spout names the sender"
+        );
+        assert_eq!(
+            cli.ndi.as_deref(),
+            Some("Strobe Out"),
+            "--ndi names the sender"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn share_size_takes_a_size_or_the_picture_and_the_ndi_options_parse() -> Result<()> {
+        let cli = Cli::try_parse_from([
+            "strobe",
+            "--share-size",
+            "1920x1080",
+            "--ndi-fps",
+            "30",
+            "--ndi-groups",
+            "Stage, FOH",
+        ])?;
+        assert_eq!(
+            cli.share_size,
+            Some(ShareSize::Fixed(1920, 1080)),
+            "a fixed size"
+        );
+        assert_eq!(cli.ndi_fps, Some(30), "a frame-rate cap");
+        assert_eq!(
+            cli.ndi_groups.as_deref(),
+            Some("Stage, FOH"),
+            "groups as typed"
+        );
+        let cli = Cli::try_parse_from(["strobe", "--share-size", "Picture"])?;
+        assert_eq!(
+            cli.share_size,
+            Some(ShareSize::Picture),
+            "the picture's own"
+        );
+        assert!(
+            Cli::try_parse_from(["strobe", "--share-size", "big"]).is_err(),
+            "anything else is refused"
+        );
         Ok(())
     }
 

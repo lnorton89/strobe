@@ -1,7 +1,8 @@
 // ============================================================================
 // Module:       strobe_capture::convert
 // Description:  A camera picture (YUY2, NV12, MJPEG, grey, RGB, BGR; top row
-//               first) to RGBA8 bottom row first, into a reused buffer.
+//               first), or a Spout or NDI one (RGBA, BGRA), to RGBA8 bottom
+//               row first, into a reused buffer.
 //
 // Dependencies: image (MJPEG); crate::format, crate::backend
 // ============================================================================
@@ -103,6 +104,25 @@ pub fn to_rgba(frame: &RawFrame<'_>, out: &mut Vec<u8>) -> Result<(), ConvertErr
             packed(frame.data, w, h, 3, out, |p, o| {
                 if let (&[pb, pg, pr], [r, g, b, _]) = (p, o) {
                     (*r, *g, *b) = (pr, pg, pb);
+                }
+            });
+        }
+        PixelFormat::Rgba => {
+            check(frame.data, w * h * 4)?;
+            out.resize(w * h * 4, 255);
+            // Already the layout: only the rows turn over, a copy each.
+            for (row, line) in frame.data.chunks_exact(w * 4).take(h).enumerate() {
+                if let Some(dst) = out.get_mut(row_range(h - 1 - row, w)) {
+                    dst.copy_from_slice(line);
+                }
+            }
+        }
+        PixelFormat::Bgra => {
+            check(frame.data, w * h * 4)?;
+            out.resize(w * h * 4, 255);
+            packed(frame.data, w, h, 4, out, |p, o| {
+                if let (&[pb, pg, pr, pa], [r, g, b, a]) = (p, o) {
+                    (*r, *g, *b, *a) = (pr, pg, pb, pa);
                 }
             });
         }
@@ -288,6 +308,26 @@ mod tests {
         to_rgba(&frame(PixelFormat::Gray, 1, 2, &[10, 20]), &mut out)
             .map_err(|e| anyhow::anyhow!("{e}"))?;
         assert_eq!(pixel(&out, 0), [20, 20, 20, 255], "grey, flipped");
+        Ok(())
+    }
+
+    #[test]
+    fn four_byte_pictures_turn_over_and_keep_alpha() -> Result<()> {
+        // 1x2: top pixel first, as Spout and NDI send them.
+        let mut out = Vec::new();
+        let top_then_bottom = [1, 2, 3, 4, 5, 6, 7, 8];
+        to_rgba(&frame(PixelFormat::Rgba, 1, 2, &top_then_bottom), &mut out)
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        assert_eq!(pixel(&out, 0), [5, 6, 7, 8], "RGBA: bottom row first");
+        assert_eq!(pixel(&out, 1), [1, 2, 3, 4], "then the top");
+        to_rgba(&frame(PixelFormat::Bgra, 1, 2, &top_then_bottom), &mut out)
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        assert_eq!(pixel(&out, 0), [7, 6, 5, 8], "BGRA swapped, flipped");
+        assert_eq!(
+            to_rgba(&frame(PixelFormat::Rgba, 2, 1, &[0; 7]), &mut out),
+            Err(ConvertError::Short { needed: 8, got: 7 }),
+            "one byte short"
+        );
         Ok(())
     }
 

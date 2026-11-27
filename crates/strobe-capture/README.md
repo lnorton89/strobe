@@ -10,9 +10,10 @@ back. It never touches GL.
 
 - **Depends on:** `log`, `image` (MJPEG), and on Windows `nokhwa` with only
   its Media Foundation backend (`input-msmf`, no default features).
-- **Depended on by:** `strobe-app`, whose `camera` module implements the
+- **Depended on by:** `strobe-app`, whose `live` module implements the
   `Sink` over a `strobe_gfx::live::Mailbox` and installs the player's
-  `LiveSources`.
+  `LiveSources`. The app also runs Spout and NDI input on this supervisor,
+  as two more `Backend`s (`strobe_app::share_input`, D575).
 - **Does not:** depend on `strobe-gfx` or any other Strobe crate, or draw
   anything. The render thread never waits on it: a picture goes into a
   one-picture mailbox, and the newest wins.
@@ -23,11 +24,11 @@ back. It never touches GL.
 |---|---|
 | `list()` | The cameras by name, as `--list-cameras` prints them. Tens of milliseconds, so a UI calls it off its frame thread. |
 | `start(name, sink)` | Starts the `camera` (watchdog) and `camera-read` threads. Returns at once; a camera not there yet is waited for. |
-| `Sink` | `buffer`, `put(Picture)`, `failed(&Failure)` once per outage, `recovered`, and `wanted`, which stops the threads when it says no. |
+| `Sink` | `buffer`, `put(Picture)`, `failed(&Failure)` once per outage, `recovered`, and `wanted`, which stops the threads when it says no; `kind` names the source in logs and failures (`camera` unless the host says otherwise, D575). |
 | `Picture` | RGBA8, bottom row first (GL's order), with the time it was read. |
 | `Cause`, `Failure` | Why a camera shows nothing (not found, unplugged, stalled, in use, blocked, unreadable, unsupported) and the action line a person reads. |
 | `format::pick`, `Offer`, `PixelFormat` | Which of a camera's formats to ask for: 720p30 uncompressed first. |
-| `convert::to_rgba` | YUY2, NV12, MJPEG, grey, RGB and BGR to RGBA, flipped, into a reused buffer. |
+| `convert::to_rgba` | YUY2, NV12, MJPEG, grey, RGB and BGR (a camera's), and RGBA and BGRA (Spout's and NDI's, D575) to RGBA, flipped, into a reused buffer. |
 | `Backend`, `Stream`, `Timing`, `start_with` | The seam the tests use: a fake camera and short times. |
 
 ## Usage

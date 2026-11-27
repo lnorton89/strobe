@@ -428,6 +428,9 @@ struct Stack {
     /// The output post stage (the meta controls), compiled once when the
     /// context opens and idle unless a value is off neutral (D180).
     post: Post,
+    /// The share stage and the Spout sender (D573): bound to this context,
+    /// so they sit before it and go with it.
+    share: crate::output::GpuShare,
     /// Owns GL timer queries, so it sits before the context in drop order.
     perf: Performance,
     ui: UiHost,
@@ -522,6 +525,7 @@ impl Stack {
             show: None,
             compositor,
             post,
+            share: crate::output::GpuShare::default(),
             perf,
             ui,
             control,
@@ -555,6 +559,7 @@ impl Stack {
             show,
             compositor,
             post,
+            share,
             mut perf,
             mut ui,
             control,
@@ -578,6 +583,7 @@ impl Stack {
             drop(thumbnail);
             drop(compositor);
             drop(post);
+            share.abandon();
             drop(perf);
             ui.abandon();
         } else {
@@ -588,6 +594,7 @@ impl Stack {
             drop(thumbnail);
             drop(compositor);
             drop(post);
+            drop(share);
             perf.release();
             drop(perf);
             ui.destroy();
@@ -860,6 +867,8 @@ struct Running {
     lan_scan: LanScan,
     /// The file or folder dialog a Browse button opened (D470).
     picker: crate::picker::Picker,
+    /// The Spout and NDI senders this run has open (D570).
+    share: crate::output::Sharing,
     desktop_capture: crate::desktop::Capture,
     desktop_input: crate::desktop::HostInput,
     desktop_events: Vec<strobe_remote::desktop::Input>,
@@ -938,6 +947,9 @@ impl Running {
         } else {
             UiState::load()
         };
+        // Sharing the output (D573): flags lay this run's choice over the
+        // saved one, and are never written back.
+        crate::output::apply_flags(cli, &mut ui_state.sharing);
         if cli.system_title_bar {
             ui_state.custom_title_bar = false;
         }
@@ -1078,6 +1090,7 @@ impl Running {
             desktop_controller,
             lan_scan: LanScan::default(),
             picker: crate::picker::Picker::default(),
+            share: crate::output::Sharing::new(),
             desktop_capture: crate::desktop::Capture::default(),
             desktop_input: crate::desktop::HostInput::default(),
             desktop_events: Vec::with_capacity(129),
@@ -1560,6 +1573,8 @@ impl Running {
         // The new control window has a new egui context and painter: the
         // thumbnails uploaded through the old one are not in it (D550).
         running.ui_state.thumbs.forget_textures();
+        // The Spout sender went with the old context (D573).
+        running.share.context_changed();
         running.stack.perf.resume_scale(carried.scale);
         running.refresh_monitors(event_loop);
         if let Some((source, playlist, point)) = reload {
@@ -3685,15 +3700,16 @@ impl Running {
     /// Shows `path` behind `syn_Media` in the live scene and in every one
     /// loaded after it, by hand or by a cue that names no media of its own;
     /// `None` gives each scene its own back (D217). Not saved: the choice
-    /// lasts the run, like `--media`. A camera (`camera:<name>`, D528) is
-    /// taken as it is: it may be plugged in later.
+    /// lasts the run, like `--media`. A live source (`camera:<name>`, D528;
+    /// `spout:<name>`, `ndi:<name>`, D575) is taken as it is: it may start
+    /// later.
     fn set_media(&mut self, path: Option<std::path::PathBuf>) {
-        let camera = path
+        let live = path
             .as_deref()
-            .and_then(strobe_scene::camera::name_of)
-            .map(strobe_scene::camera::path_for);
-        let path = match camera {
-            Some(camera) => Some(camera),
+            .and_then(strobe_scene::live::source_of)
+            .map(|source| strobe_scene::live::path_for(source.kind, source.name));
+        let path = match live {
+            Some(live) => Some(live),
             None => match path.map(std::path::absolute).transpose() {
                 Ok(path) => path,
                 Err(error) => {
@@ -3706,7 +3722,7 @@ impl Running {
             },
         };
         if let Some(path) = &path
-            && strobe_scene::camera::name_of(path).is_none()
+            && strobe_scene::live::source_of(path).is_none()
             && !path.exists()
         {
             self.say(Tone::Warning, format!("{} was not found.", path.display()));
@@ -4681,6 +4697,10 @@ impl Running {
                     );
                 }
                 Action::SetPrerender(on) => self.set_prerender(on),
+                Action::SetSharing(pref) => {
+                    self.ui_state.sharing.choose(pref);
+                    self.apply_sharing();
+                }
                 Action::SetAdaptive(on) => {
                     self.stack.perf.set_enabled(on);
                     self.render_scale = self.stack.perf.scale();
@@ -5421,6 +5441,7 @@ impl Running {
         }
         let composited = self.stack.show.as_ref().is_some_and(Show::composited);
         self.posted = self.apply_post(composited);
+        self.share_picture(composited);
         if self.stack.session.is_some() || composited {
             if shown {
                 gl.plain_state();
@@ -5529,6 +5550,70 @@ impl Running {
                 false
             }
         }
+    }
+
+    /// Hands this frame's finished picture to the senders that are on
+    /// (D573): the post stage's output when it ran, else the compositor's
+    /// mix, else the scene's output, the same choice a hidden window's
+    /// screenshot makes, and black while the show is blacked out. The clean
+    /// feed gets the picture before the post stage (D574).
+    fn share_picture(&mut self, composited: bool) {
+        let stack = &mut self.stack;
+        if !self.share.active(&stack.share) {
+            return;
+        }
+        // With nothing playing, both senders go out black at the post
+        // stage's size (its texture is only sized from, never read), so a
+        // receiver that connects first shows black rather than nothing.
+        let idle = !composited && stack.session.is_none();
+        let clean = if composited {
+            stack.compositor.output_texture()
+        } else if let Some(session) = stack.session.as_ref() {
+            session.player.output_texture()
+        } else {
+            stack.post.output_texture()
+        };
+        let show = if self.posted && !idle {
+            stack.post.output_texture()
+        } else {
+            clean
+        };
+        let pictures = crate::output::Pictures {
+            show,
+            clean,
+            black: self.blackout || idle,
+            clean_black: idle,
+        };
+        let changed = self.share.frame(
+            &mut stack.share,
+            stack.gfx.gl(),
+            stack.gfx.caps(),
+            pictures,
+            Instant::now(),
+        );
+        if changed {
+            self.copy_sharing_lines();
+        }
+    }
+
+    /// Opens or closes senders after Settings or a flag changed one, and
+    /// copies what they said to the Settings row. Allocates only on a change.
+    fn apply_sharing(&mut self) {
+        if self
+            .share
+            .apply(&self.ui_state.sharing.live, &mut self.stack.share)
+        {
+            self.copy_sharing_lines();
+        }
+    }
+
+    /// Copies the senders' notes and status line to the Settings rows.
+    fn copy_sharing_lines(&mut self) {
+        let [spout, ndi] = self.share.notes();
+        let ui = &mut self.ui_state.sharing;
+        spout.clone_into(&mut ui.spout_note);
+        ndi.clone_into(&mut ui.ndi_note);
+        self.share.status().clone_into(&mut ui.status);
     }
 
     /// Adopts the adaptive controller's new scale and says why.
@@ -5774,6 +5859,8 @@ impl Running {
                 .as_ref()
                 .is_some_and(|session| same_folder(&session.dir, last))
         });
+        // Opens or closes a sender when Settings or a flag changed one.
+        self.apply_sharing();
         let imported = self.imported_entry();
         let scene_transitions = self
             .stack

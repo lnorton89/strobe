@@ -1,6 +1,7 @@
 // ============================================================================
 // Module:       live (integration test)
-// Description:  A camera behind syn_Media against a real GLSL compiler: its
+// Description:  A live source (camera, Spout, NDI) behind syn_Media against a
+//               real GLSL compiler: its
 //               pictures show upright with syn_MediaType 3 in one reused
 //               texture, a failure reads black and is said once, and the
 //               frames ask the driver nothing.
@@ -9,9 +10,9 @@
 //               strobe-scene
 // ============================================================================
 
-//! Live-source tests (backlog M-04, D528).
+//! Live-source tests (backlog M-04, D528; Spout and NDI input, D575).
 //!
-//! A fake [`LiveSources`] hands out one mailbox per camera name, and the
+//! A fake [`LiveSources`] hands out one mailbox per source, and the
 //! test plays the capture thread by putting pictures in it. Its own test
 //! binary, because the sources are installed process-wide. Like
 //! `render.rs` these report a skip when no headless context exists, unless
@@ -21,7 +22,7 @@ use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
-use strobe_gfx::live::{LiveFrame, LiveSources, Mailbox};
+use strobe_gfx::live::{Kind, LiveFrame, LiveSources, Mailbox, Source};
 use strobe_gfx::{Api, Caps, FrameInputs, Headless, MediaRequest, Mouse, Options, ScenePlayer};
 use strobe_scene::SceneFolder;
 use strobe_scene::audio::SCALARS;
@@ -49,30 +50,36 @@ fn context(api: Api) -> Result<Option<Headless>> {
     }
 }
 
-/// One mailbox per camera name, as the app's registry would keep.
+/// One mailbox per source, as the app's registry would keep, and every
+/// source asked for, by kind.
 #[derive(Default)]
-struct Fake(Mutex<HashMap<String, Mailbox>>);
+struct Fake(Mutex<HashMap<(Kind, String), Mailbox>>);
 
 impl LiveSources for Fake {
-    fn camera(&self, name: &str) -> Mailbox {
+    fn open(&self, source: Source<'_>) -> Mailbox {
         self.0
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .entry(name.to_string())
+            .entry((source.kind, source.name.to_string()))
             .or_default()
             .clone()
     }
 }
 
-/// The capture side of camera `name`.
-fn camera(name: &str) -> Mailbox {
+/// The capture side of the source of `kind` called `name`.
+fn capture(kind: Kind, name: &str) -> Mailbox {
     static SOURCES: std::sync::OnceLock<Arc<Fake>> = std::sync::OnceLock::new();
     let sources = SOURCES.get_or_init(|| {
         let fake = Arc::new(Fake::default());
         strobe_gfx::live::install(fake.clone());
         fake
     });
-    sources.camera(name)
+    sources.open(Source { kind, name })
+}
+
+/// The capture side of camera `name`.
+fn camera(name: &str) -> Mailbox {
+    capture(Kind::Camera, name)
 }
 
 fn scene() -> Result<SceneFolder> {
@@ -238,6 +245,51 @@ fn a_failing_camera_reads_black_says_so_once_and_comes_back() -> Result<()> {
         capture.put(picture(GREEN, GREEN));
         let px = pixel(&render(&mut player, &scene, 3)?, 1, 1)?;
         assert!(near(px, [0, 255, 191, 255]), "{api:?}: back: {px:?}");
+    }
+    Ok(())
+}
+
+#[test]
+fn a_spout_sender_and_an_ndi_source_show_as_type_3_by_their_own_kind() -> Result<()> {
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let gl = headless.gl();
+        let caps = Caps::from_info(gl.info());
+        let scene = scene()?;
+        for kind in [Kind::Spout, Kind::Ndi] {
+            // The same name as a camera's: the kind keeps them apart.
+            let name = format!("Feed {api:?}");
+            let feed = capture(kind, &name);
+            let mut player = ScenePlayer::new(gl, &caps, &scene, [SIZE, SIZE], Options::default())?;
+            player.choose_media(Some(MediaRequest::for_path(strobe_scene::live::path_for(
+                kind, &name,
+            ))));
+            feed.put(picture(GREEN, RED));
+            let pixels = render(&mut player, &scene, 0)?;
+            let (bottom, top) = (pixel(&pixels, 1, 3)?, pixel(&pixels, 1, 0)?);
+            assert!(
+                near(bottom, [0, 255, 191, 255]) && near(top, [255, 0, 191, 255]),
+                "{api:?} {kind}: upright, type 3: bottom {bottom:?}, top {top:?}"
+            );
+            assert_eq!(
+                camera(&name).stats().put,
+                0,
+                "{api:?} {kind}: the camera of that name was not fed"
+            );
+            feed.fail("closed".to_string(), "start it again".to_string());
+            let px = pixel(&render(&mut player, &scene, 1)?, 1, 1)?;
+            assert!(
+                near(px, [0, 0, 0, 255]),
+                "{api:?} {kind}: lost reads black: {px:?}"
+            );
+            let problems = player.take_asset_problems();
+            assert!(
+                problems.len() == 1 && problems[0].path.starts_with(kind.prefix()),
+                "{api:?} {kind}: said once: {problems:?}"
+            );
+        }
     }
     Ok(())
 }

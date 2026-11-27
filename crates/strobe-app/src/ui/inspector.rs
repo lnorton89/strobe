@@ -71,6 +71,7 @@ use crate::script::ScriptState;
 use egui::{Sense, Ui, Vec2};
 use strobe_io::target::BankId;
 use strobe_scene::control::{ControlBank, ControlKind};
+use strobe_scene::live::Kind;
 
 /// Which half of the playing scene's panel is drawn (D283).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -205,7 +206,7 @@ pub fn show(
                         ui,
                         theme,
                         media,
-                        (&mut model.ui.media_draft, &mut model.ui.cameras),
+                        (&mut model.ui.media_draft, &mut model.ui.live_list),
                         actions,
                     );
                 }
@@ -349,22 +350,22 @@ pub fn show(
 }
 
 /// What the playing scene shows behind `syn_Media`, where that comes from,
-/// and the field that chooses another (D217), or the list of cameras to
-/// choose from (D528). A scene whose shaders never read `syn_Media` gets
-/// no row unless media was chosen anyway.
+/// and the field that chooses another (D217), or the list of cameras (D528),
+/// Spout senders or NDI sources (D575) to choose from. A scene whose shaders
+/// never read `syn_Media` gets no row unless media was chosen anyway.
 fn media_row(
     ui: &mut Ui,
     theme: &Palette,
     media: MediaPanel<'_>,
-    (draft, cameras): (&mut Option<String>, &mut Option<crate::camera::Listing>),
+    (draft, live): (&mut Option<String>, &mut Option<crate::live::Listing>),
     actions: &mut Vec<Action>,
 ) {
-    if !media.read && !media.chosen && draft.is_none() && cameras.is_none() {
+    if !media.read && !media.chosen && draft.is_none() && live.is_none() {
         return;
     }
-    if let Some(listing) = cameras.as_mut() {
-        if camera_row(ui, theme, listing, actions) {
-            *cameras = None;
+    if let Some(listing) = live.as_mut() {
+        if live_row(ui, theme, listing, actions) {
+            *live = None;
         }
         return;
     }
@@ -404,17 +405,15 @@ fn media_row(
                     media
                         .showing
                         .filter(|_| media.from == MediaFrom::Chosen)
-                        .filter(|path| strobe_scene::camera::name_of(path).is_none())
+                        .filter(|path| strobe_scene::live::source_of(path).is_none())
                         .map(|path| path.display().to_string())
                         .unwrap_or_default(),
                 );
             }
-            if ui
-                .small_button("Camera")
-                .on_hover_text("Show a webcam behind syn_Media")
-                .clicked()
-            {
-                *cameras = Some(crate::camera::Listing::start());
+            for (kind, label, hover) in LIVE_BUTTONS {
+                if ui.small_button(label).on_hover_text(hover).clicked() {
+                    *live = Some(crate::live::Listing::start(kind));
+                }
             }
             if media.chosen
                 && ui
@@ -449,18 +448,69 @@ fn media_row(
     }
 }
 
-/// The cameras to choose from, one button each, while the list is open.
-/// True when it is done (a camera chosen, or cancelled).
-fn camera_row(
+/// The Media row's live-source buttons: the kind each lists, its label and
+/// its hover line (D528, D575).
+const LIVE_BUTTONS: [(Kind, &str, &str); 3] = [
+    (Kind::Camera, "Camera", "Show a webcam behind syn_Media"),
+    (
+        Kind::Spout,
+        "Spout",
+        "Show another app's Spout output (Resolume, TouchDesigner, OBS) behind syn_Media",
+    ),
+    (
+        Kind::Ndi,
+        "NDI",
+        "Show an NDI source on the network behind syn_Media",
+    ),
+];
+
+/// What the live-source row says for `kind`: its label, while listing, and
+/// when nothing is there.
+fn live_words(kind: Kind) -> (&'static str, &'static str, &'static str) {
+    match kind {
+        Kind::Camera => ("Camera", "Looking for cameras", "No camera found"),
+        Kind::Spout => (
+            "Spout",
+            "Looking for Spout senders",
+            "No Spout sender is running",
+        ),
+        Kind::Ndi => (
+            "NDI",
+            "Looking for NDI sources",
+            "No NDI source found on the network",
+        ),
+    }
+}
+
+/// The hover line on one source's button.
+fn live_hover(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Camera => {
+            "Show this camera behind syn_Media in every scene; it comes back by itself if it is unplugged and plugged in again"
+        }
+        Kind::Spout => {
+            "Show this sender behind syn_Media in every scene; it comes back by itself if the sending app stops and starts again"
+        }
+        Kind::Ndi => {
+            "Show this source behind syn_Media in every scene; it comes back by itself if it stops and starts sending again"
+        }
+    }
+}
+
+/// The sources of one kind to choose from, one button each, while the list
+/// is open. True when it is done (a source chosen, or cancelled).
+fn live_row(
     ui: &mut Ui,
     theme: &Palette,
-    listing: &mut crate::camera::Listing,
+    listing: &mut crate::live::Listing,
     actions: &mut Vec<Action>,
 ) -> bool {
+    let kind = listing.kind();
+    let (label, asking, none) = live_words(kind);
     let mut done = false;
     ui.horizontal_wrapped(|ui| {
         ui.label(
-            egui::RichText::new("Camera")
+            egui::RichText::new(label)
                 .small()
                 .color(theme::rgb(theme.text_muted)),
         );
@@ -470,32 +520,30 @@ fn camera_row(
                 .color(theme::rgb(theme.text_faint))
         };
         match listing.poll() {
-            crate::camera::Listed::Asking => {
-                ui.label(faint("Looking for cameras").italics());
+            crate::live::Listed::Asking => {
+                ui.label(faint(asking).italics());
                 // The answer comes from another thread: look again soon.
                 ui.ctx()
                     .request_repaint_after(std::time::Duration::from_millis(100));
             }
-            crate::camera::Listed::Cameras(names) if names.is_empty() => {
-                ui.label(faint("No camera found"));
+            crate::live::Listed::Found(names) if names.is_empty() => {
+                ui.label(faint(none));
             }
-            crate::camera::Listed::Cameras(names) => {
+            crate::live::Listed::Found(names) => {
                 for name in names {
                     if ui
                         .small_button(name.as_str())
-                        .on_hover_text(
-                            "Show this camera behind syn_Media in every scene; it comes back by itself if it is unplugged and plugged in again",
-                        )
+                        .on_hover_text(live_hover(kind))
                         .clicked()
                     {
-                        actions.push(Action::SetMedia(Some(strobe_scene::camera::path_for(
-                            name,
+                        actions.push(Action::SetMedia(Some(strobe_scene::live::path_for(
+                            kind, name,
                         ))));
                         done = true;
                     }
                 }
             }
-            crate::camera::Listed::Failed(why) => {
+            crate::live::Listed::Failed(why) => {
                 ui.label(faint(&format!("Listing failed: {why}")));
             }
         }
@@ -544,9 +592,9 @@ fn media_words(media: MediaPanel<'_>) -> (String, String) {
             "Nothing shows behind syn_Media".to_string(),
         );
     };
-    let camera = strobe_scene::camera::name_of(path);
-    let name = match camera {
-        Some(camera) => format!("camera {camera}"),
+    let live = strobe_scene::live::source_of(path);
+    let name = match live {
+        Some(source) => format!("{} {}", source.kind, source.name),
         None => path.file_name().map_or_else(
             || path.display().to_string(),
             |n| n.to_string_lossy().into_owned(),
@@ -557,7 +605,7 @@ fn media_words(media: MediaPanel<'_>) -> (String, String) {
         MediaFrom::Cue => "named by this cue",
         MediaFrom::Chosen => "chosen",
     };
-    let state = match (media.loading, camera) {
+    let state = match (media.loading, live) {
         (true, Some(_)) => ", opening",
         (true, None) => ", loading",
         (false, _) => "",

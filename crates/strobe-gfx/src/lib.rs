@@ -36,6 +36,8 @@ pub mod offscreen;
 pub mod player;
 pub mod post;
 pub mod readback;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod share;
 pub mod skip;
 pub mod timing;
 

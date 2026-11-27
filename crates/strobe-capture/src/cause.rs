@@ -155,7 +155,10 @@ impl Cause {
 /// A camera that stopped, or never started.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Failure {
-    /// The camera's name.
+    /// What kind of source it is, for a sentence: `camera`, `Spout sender`,
+    /// `NDI source` ([`crate::Sink::kind`]).
+    pub kind: &'static str,
+    /// The camera's (or other source's) name.
     pub camera: String,
     /// The likely cause.
     pub cause: Cause,
@@ -167,7 +170,8 @@ impl fmt::Display for Failure {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "camera \"{}\" {}: {}",
+            "{} \"{}\" {}: {}",
+            self.kind,
             self.camera,
             self.cause.label(),
             self.detail

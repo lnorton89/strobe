@@ -2,7 +2,8 @@
 
 > **Approved 2026-11-03 and built (D528, D529, D530).** Steps 1-5 and 7 of
 > the [proposal](#proposal) are in `strobe-capture`, `strobe_gfx::live` and
-> `strobe_app::camera`; step 6, the Media Overlay, waits on C-01. A camera
+> `strobe_app::camera` (now `strobe_app::live`, which also runs Spout and
+> NDI input on the same path, D575); step 6, the Media Overlay, waits on C-01. A camera
 > is chosen as `camera:<name>` (Inspector > Media > Camera, `--media`, a
 > cue, a preset), and `strobe --list-cameras` prints the names. The
 > [checklist](#checklist-for-a-machine-with-a-camera) below is still open:
