@@ -416,3 +416,34 @@ pass, and the pipe then never closed. Reproduced with `cargo xtask rc …
 from the package check. Closing it ended the pipe at once. With D551, on a
 `release-fast` package of the fix, the same piped run passed and ended by
 itself in 30 s, with no box left behind.
+
+## v0.5.0's own archives through `cargo xtask rc` (2026-11-27, LIGHTNING, D548)
+
+The tag (bb72512) staged a draft with all six assets, and the harness ran
+here on the draft's own program and symbols zips, downloaded with `gh
+release download`. Both `.sha256` files matched, and `gh attestation
+verify` passed for the program zip.
+
+Machine: this desktop (LIGHTNING), Radeon RX 580 Series (native GL 3.3.0
+Core Profile Context 26.5.2.260413, D3D11 driver 31.0.21925.1001), Windows
+10 Pro 19045. Harness from bb72512.
+
+**Verdict: pass, no problems** (`target\rc\evidence.json`, archive
+SHA-256 42fc3e7d…, symbols f33b7aa4…).
+
+| Step | Result |
+|---|---|
+| Package check | 11 of 11: the 11 files, the 17 scenes, the four pinned DLLs, the notices, version 0.5.0, the 28 direct imports all Windows' own or in the package, the PDB against the exe (GUID 61e965f6…, age 1), `--diagnose` with the pinned ANGLE |
+| Native GL, 600 frames | ok in 11.6 s: `native (OpenGL 3.3 core) \| Radeon RX 580 Series \| 3.3.0 Core Profile Context 26.5.2.260413` |
+| ANGLE-D3D11, 600 frames | ok in 10.7 s: `ANGLE (AMD, Radeon RX 580 Series (0x000067DF) Direct3D11 …, D3D11-31.0.21925.1001) \| OpenGL ES 3.0.0 (ANGLE 2.1.25847 git hash: a8c8a6febe63)` |
+| `STROBE_FAULT=crash@120` | ok: `0xc00000fd` after 2.4 s, symbolicated against the archived PDB to Strobe's own functions |
+
+Of the manual checks, `STROBE_FAULT=lose-context@60` was run on the
+packaged exe (`--scene 03-kaleido-tunnel --frames 200`, output hidden).
+The context was lost after 60 frames, rebuilt on native (`outcome=recovered`),
+and the output shot after the rebuild shows the scene, not black. The
+playlist play-through, the audio replug, and fullscreen and back need a
+person at the machine and were not run for this release.
+
+The publish was approved after the harness and the context-loss check
+had passed, on the same files.
