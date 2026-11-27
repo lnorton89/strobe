@@ -1,9 +1,9 @@
 // ============================================================================
 // Module:       xtask::native
 // Description:  `cargo xtask sbom-native`: adds the native files the release
-//               zip carries (ANGLE, the D3D compiler, the Vulkan loader) to
-//               the CycloneDX SBOM, each checked against
-//               scripts/native-deps.json.
+//               zip carries (ANGLE, the D3D compiler, the Vulkan loader,
+//               Spout's library) to the CycloneDX SBOM, each checked
+//               against scripts/native-deps.json.
 //
 // Dependencies: anyhow, clap, serde_json, sha2
 // ============================================================================
@@ -11,8 +11,8 @@
 //! The SBOM describes the whole archive, not just the Rust in it (D536).
 //!
 //! `cargo cyclonedx` lists every crate in `strobe.exe`, but the release zip
-//! also carries four DLLs from an Electron release, which no Cargo metadata
-//! knows about. This adds one CycloneDX component per DLL: its name, the
+//! also carries four DLLs from an Electron release and Spout's library
+//! (D576), which no Cargo metadata knows about. This adds one CycloneDX component per DLL: its name, the
 //! pinned version, supplier, licence, the SHA-256 of the file actually in
 //! the build folder, and where it was downloaded from. A file whose hash is
 //! not the pinned one fails the command, so a release cannot describe a DLL
@@ -70,15 +70,19 @@ pub(crate) fn sha256(path: &Path) -> Result<String> {
         .collect())
 }
 
-/// The pinned files: `(name, sha256)` pairs from the manifest's `angle`.
-#[cfg(test)]
-fn pinned_files(manifest: &Value) -> Result<Vec<(String, String)>> {
-    manifest["angle"]["files"]
-        .as_array()
-        .context("the manifest has no angle.files")?
-        .iter()
-        .map(|file| {
-            Ok((
+/// The bundles the manifest pins, each a download whose files ship beside
+/// `strobe.exe`: ANGLE (D536) and Spout's library (D576).
+pub(crate) const BUNDLES: [&str; 2] = ["angle", "spout"];
+
+/// The pinned files of every bundle: `(name, sha256)` pairs.
+pub(crate) fn pinned_files(manifest: &Value) -> Result<Vec<(String, String)>> {
+    let mut pinned = Vec::new();
+    for bundle in BUNDLES {
+        let files = manifest[bundle]["files"]
+            .as_array()
+            .with_context(|| format!("the manifest has no {bundle}.files"))?;
+        for file in files {
+            pinned.push((
                 file["name"]
                     .as_str()
                     .context("a file without a name")?
@@ -87,7 +91,21 @@ fn pinned_files(manifest: &Value) -> Result<Vec<(String, String)>> {
                     .as_str()
                     .context("a file without a sha256")?
                     .to_owned(),
-            ))
+            ));
+        }
+    }
+    Ok(pinned)
+}
+
+/// The licence file each bundle ships beside its files.
+pub(crate) fn licence_files(manifest: &Value) -> Result<Vec<String>> {
+    BUNDLES
+        .iter()
+        .map(|bundle| {
+            manifest[*bundle]["licence_file"]
+                .as_str()
+                .map(str::to_owned)
+                .with_context(|| format!("the manifest has no {bundle}.licence_file"))
         })
         .collect()
 }
@@ -112,13 +130,40 @@ pub(crate) fn run(args: &Args) -> Result<()> {
 /// Adds one component per pinned file in `dir` to `sbom`, after checking
 /// each file's hash against the pin. Returns how many were added.
 pub(crate) fn add_components(sbom: &mut Value, manifest: &Value, dir: &Path) -> Result<usize> {
-    let angle = &manifest["angle"];
-    let version = angle["version"].as_str().context("angle.version")?;
-    let source = angle["source"].as_str().context("angle.source")?;
-    let archive = angle["archive_sha256"]
+    let mut components = Vec::new();
+    for bundle in BUNDLES {
+        // A manifest without a bundle (a test's) describes what it has.
+        if manifest[bundle].is_null() {
+            continue;
+        }
+        components.extend(bundle_components(&manifest[bundle], bundle, dir)?);
+    }
+    let list = sbom
+        .as_object_mut()
+        .ok_or_else(|| anyhow!("the SBOM is not a JSON object"))?
+        .entry("components")
+        .or_insert_with(|| json!([]))
+        .as_array_mut()
+        .ok_or_else(|| anyhow!("the SBOM's components is not a list"))?;
+    let added = components.len();
+    list.extend(components);
+    Ok(added)
+}
+
+/// One component per file of one bundle, each checked against its pin.
+fn bundle_components(entry: &Value, bundle: &str, dir: &Path) -> Result<Vec<Value>> {
+    let version = entry["version"]
         .as_str()
-        .context("angle.archive_sha256")?;
-    let files = angle["files"].as_array().context("angle.files")?;
+        .with_context(|| format!("{bundle}.version"))?;
+    let source = entry["source"]
+        .as_str()
+        .with_context(|| format!("{bundle}.source"))?;
+    let archive = entry["archive_sha256"]
+        .as_str()
+        .with_context(|| format!("{bundle}.archive_sha256"))?;
+    let files = entry["files"]
+        .as_array()
+        .with_context(|| format!("{bundle}.files"))?;
     let mut components = Vec::new();
     for file in files {
         let name = file["name"].as_str().context("a file without a name")?;
@@ -153,16 +198,7 @@ pub(crate) fn add_components(sbom: &mut Value, manifest: &Value, dir: &Path) -> 
             ],
         }));
     }
-    let list = sbom
-        .as_object_mut()
-        .ok_or_else(|| anyhow!("the SBOM is not a JSON object"))?
-        .entry("components")
-        .or_insert_with(|| json!([]))
-        .as_array_mut()
-        .ok_or_else(|| anyhow!("the SBOM's components is not a list"))?;
-    let added = components.len();
-    list.extend(components);
-    Ok(added)
+    Ok(components)
 }
 
 #[cfg(test)]
@@ -237,12 +273,16 @@ mod tests {
     }
 
     #[test]
-    fn the_real_manifest_pins_four_files() -> Result<()> {
+    fn the_real_manifest_pins_five_files() -> Result<()> {
         let files = pinned_files(&manifest()?)?;
         assert_eq!(
             files.len(),
-            4,
-            "libEGL, libGLESv2, d3dcompiler_47, vulkan-1: {files:?}"
+            5,
+            "libEGL, libGLESv2, d3dcompiler_47, vulkan-1, SpoutLibrary: {files:?}"
+        );
+        assert!(
+            files.iter().any(|(name, _)| name == "SpoutLibrary.dll"),
+            "Spout's library ships with the program (D576)"
         );
         assert!(
             files.iter().all(|(_, hash)| hash.len() == 64),

@@ -35,5 +35,24 @@
         "licence": "Apache-2.0"
       }
     ]
+  },
+  "spout": {
+    "name": "Spout, from the Spout 2 SDK binaries",
+    "version": "2.007.018",
+    "source": "https://github.com/leadedge/Spout2/releases/download/2.007.018/Spout-SDK-binaries_2-007-018.zip",
+    "archive_sha256": "6b6101ad860b7c42128d715a6d8f2dfdfcc1df2a64dde7c04317c11d059d27ea",
+    "licence_file": "LICENSE.spout.txt",
+    "licence_source": "https://raw.githubusercontent.com/leadedge/Spout2/2.007.018/LICENSE",
+    "licence_sha256": "124f739384955b3b87ca556f486be770299bf2dda7d5a7281347f035f511a8f4",
+    "files": [
+      {
+        "name": "SpoutLibrary.dll",
+        "archive_path": "Spout-SDK-binaries/Libs_2-007-018/MT/bin/SpoutLibrary.dll",
+        "sha256": "c76ac3382618cc6d71851a4bc6c8a41768d75d2cd386962fc2e3b901efd0d923",
+        "component": "SpoutLibrary (Spout 2 SDK, static runtime build)",
+        "supplier": "Lynn Jarvis (leadedge/Spout2)",
+        "licence": "BSD-2-Clause"
+      }
+    ]
   }
 }

@@ -807,8 +807,8 @@ fn sharing(
         let mut row = Row::new(SPOUT).description(
             "Publishes the picture to Spout, so Resolume, OBS, TouchDesigner, MadMapper or Notch \
              on this computer can take it as a source. The GPU texture itself is shared: nothing \
-             is read back. Windows only, with Spout 2.007's 64-bit SpoutLibrary.dll beside \
-             Strobe; if a receiver shows nothing on an Intel GPU, turn on CPU sharing in \
+             is read back. Windows only. Spout's library ships with Strobe, so nothing needs \
+             installing; if a receiver shows nothing on an Intel GPU, turn on CPU sharing in \
              SpoutSettings.",
         );
         if !state.spout_note.is_empty() {

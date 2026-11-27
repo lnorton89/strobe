@@ -298,8 +298,8 @@ mod imp {
         pub(super) fn open(name: &str) -> Result<Self, Problem> {
             let path = crate::probe::spout_library().ok_or_else(|| {
                 Problem::new(
-                    "Spout output needs SpoutLibrary.dll, which was not found beside Strobe or on \
-                     the PATH; install Spout from spout.zeal.co",
+                    "Spout output needs SpoutLibrary.dll, which ships with Strobe and is missing \
+                     from its folder; unpack the whole release zip again",
                 )
             })?;
             // Before the object exists: an error after `GetSpout` would leave

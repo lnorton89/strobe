@@ -1,3 +1,6 @@
+# Also fetches Spout's SpoutLibrary.dll for Spout output and input (D576);
+# see the Spout section below.
+#
 # Fetches ANGLE (libEGL.dll, libGLESv2.dll, d3dcompiler_47.dll) for Strobe's
 # Direct3D 11 fallback context and places them beside the built executables,
 # with the Vulkan loader (vulkan-1.dll) that `--gl angle-vulkan` needs: this
@@ -77,6 +80,45 @@ foreach ($Name in $Files.Keys) {
     if ($Hash -ne $Files[$Name]) { throw "$Name hash mismatch: $Hash" }
 }
 
+# Spout's library, for Spout output and input (D576): the 64-bit, static
+# runtime build from Spout's own SDK binaries release, so a person needs
+# neither Spout nor a Visual C++ runtime installed. Pinned the same way: the
+# archive, the extracted DLL and Spout's BSD-2-Clause licence (taken from
+# the same tag, since the binaries zip carries none) are each hash-checked.
+$Spout = (Get-Content (Join-Path $PSScriptRoot "native-deps.json") -Raw | ConvertFrom-Json).spout
+if (-not $Spout -or -not $Spout.version -or -not $Spout.archive_sha256 -or $Spout.files.Count -eq 0) {
+    throw 'scripts\native-deps.json has no complete "spout" entry'
+}
+$SpoutCache = Join-Path $Root "target\spout\$($Spout.version)"
+New-Item -ItemType Directory -Force -Path $SpoutCache | Out-Null
+$SpoutZip = Join-Path $SpoutCache "spout-sdk.zip"
+if (-not (Test-Path $SpoutZip) -or (Get-FileHash $SpoutZip -Algorithm SHA256).Hash.ToLower() -ne $Spout.archive_sha256) {
+    Write-Host "Downloading $($Spout.source)"
+    Invoke-WebRequest -Uri $Spout.source -OutFile $SpoutZip -UseBasicParsing
+}
+$Actual = (Get-FileHash $SpoutZip -Algorithm SHA256).Hash.ToLower()
+if ($Actual -ne $Spout.archive_sha256) { throw "Spout archive hash mismatch: $Actual" }
+$SpoutArchive = [System.IO.Compression.ZipFile]::OpenRead($SpoutZip)
+try {
+    foreach ($File in $Spout.files) {
+        $Entry = $SpoutArchive.Entries | Where-Object { $_.FullName -eq $File.archive_path }
+        if (-not $Entry) { throw "$($File.archive_path) not found in the Spout archive" }
+        [System.IO.Compression.ZipFileExtensions]::ExtractToFile($Entry, (Join-Path $SpoutCache $File.name), $true)
+    }
+} finally {
+    $SpoutArchive.Dispose()
+}
+foreach ($File in $Spout.files) {
+    $Hash = (Get-FileHash (Join-Path $SpoutCache $File.name) -Algorithm SHA256).Hash.ToLower()
+    if ($Hash -ne $File.sha256) { throw "$($File.name) hash mismatch: $Hash" }
+}
+$SpoutLicence = Join-Path $SpoutCache $Spout.licence_file
+if (-not (Test-Path $SpoutLicence) -or (Get-FileHash $SpoutLicence -Algorithm SHA256).Hash.ToLower() -ne $Spout.licence_sha256) {
+    Invoke-WebRequest -Uri $Spout.licence_source -OutFile $SpoutLicence -UseBasicParsing
+}
+$Actual = (Get-FileHash $SpoutLicence -Algorithm SHA256).Hash.ToLower()
+if ($Actual -ne $Spout.licence_sha256) { throw "Spout licence hash mismatch: $Actual" }
+
 # "both" fills every profile people run from: release, debug, and
 # release-fast, the one to iterate with (D487).
 $Profiles = if ($BuildProfile -eq "both") { @("release", "debug", "release-fast") } else { @($BuildProfile) }
@@ -86,8 +128,11 @@ foreach ($Dest in $Dests) {
     foreach ($Name in @($Files.Keys) + "LICENSES.chromium.html") {
         Copy-Item (Join-Path $Cache $Name) $Dest -Force
     }
+    foreach ($Name in @($Spout.files | ForEach-Object { $_.name }) + $Spout.licence_file) {
+        Copy-Item (Join-Path $SpoutCache $Name) $Dest -Force
+    }
     # Which version these DLLs are, for strobe-gfx's build script: a name
     # that exists says nothing about its contents (D536).
     Set-Content -Path (Join-Path $Dest "angle.stamp") -Value $Version -NoNewline -Encoding ascii
-    Write-Host "ANGLE $Version -> $Dest"
+    Write-Host "ANGLE $Version and Spout $($Spout.version) -> $Dest"
 }
