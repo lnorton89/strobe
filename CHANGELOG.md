@@ -24,6 +24,7 @@ Nothing yet — the latest release is the tip of `master`.
 
 ### Fixed
 
+- **input:** a paused Spout sender that resizes reads black, not its old picture at the new width (M-07) ([`aba298b`](https://github.com/lnorton89/strobe/commit/aba298bdbd52a7b293c367dafc1335a4fba336fd))
 - **output:** Settings keeps flag-started senders, paused Spout input shows, size failures clear (M-06, M-07) ([`7a6c0fb`](https://github.com/lnorton89/strobe/commit/7a6c0fb9c003c1017477f84430c5819476100e74))
 - local time comes from jiff; chrono is unmaintained (D566) (#120) ([`7559ec7`](https://github.com/lnorton89/strobe/commit/7559ec75b951a374cdd9b4d75cf3a32fc95d8f45))
 - the forge reads the dialect child's pipes, keeps the standing scene on an API error, and warns over the timing budget ([`5455b69`](https://github.com/lnorton89/strobe/commit/5455b697274c9f4b610d3085d278e16102a598cd))
