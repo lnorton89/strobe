@@ -410,10 +410,14 @@ mod imp {
                     size.0, size.1
                 )));
             }
-            pixels.resize(size.0 as usize * size.1 as usize * 4, 0);
             if self.size != Some(size) {
+                // Spout writes nothing for a read with no new frame, as from
+                // a paused sender, so a buffer kept from the old size would
+                // show its bytes at the new width. Black until a frame comes.
+                pixels.clear();
                 self.unshown = true;
             }
+            pixels.resize(size.0 as usize * size.1 as usize * 4, 0);
             self.size = Some(size);
             Ok(())
         }
