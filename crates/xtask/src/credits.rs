@@ -69,7 +69,12 @@ pub(crate) fn run(check: bool, notices: Option<&Path>) -> Result<()> {
         println!("wrote {} ({} crates)", path.display(), packages.len());
         return Ok(());
     }
-    let fresh = list(&contributors()?, &packages, &angle_version()?);
+    let fresh = list(
+        &contributors()?,
+        &packages,
+        &pinned_version("angle")?,
+        &pinned_version("spout")?,
+    );
     if check {
         let committed = std::fs::read_to_string(FILE)
             .with_context(|| format!("could not read {FILE}"))?
@@ -289,13 +294,14 @@ fn git(args: &[&str]) -> Result<String> {
     String::from_utf8(output.stdout).context("git printed text that is not UTF-8")
 }
 
-/// The Electron release ANGLE is taken from, as pinned in the native
-/// dependency manifest (D536).
-fn angle_version() -> Result<String> {
-    crate::native::manifest()?["angle"]["version"]
+/// The version a bundle of the native dependency manifest pins: the
+/// Electron release ANGLE is taken from (D536), or Spout's SDK release
+/// (D576).
+fn pinned_version(bundle: &str) -> Result<String> {
+    crate::native::manifest()?[bundle]["version"]
         .as_str()
         .map(str::to_owned)
-        .ok_or_else(|| anyhow!("{} pins no angle.version", crate::native::MANIFEST))
+        .ok_or_else(|| anyhow!("{} pins no {bundle}.version", crate::native::MANIFEST))
 }
 
 /// A table cell: one line, no pipe.
@@ -307,7 +313,7 @@ fn cell(text: &str) -> String {
 }
 
 /// The text of `THIRD_PARTY.md`.
-fn list(people: &[(String, &str)], packages: &[Package], angle: &str) -> String {
+fn list(people: &[(String, &str)], packages: &[Package], angle: &str, spout: &str) -> String {
     // One row per crate name: several versions of one crate are one
     // project. Their licences are listed together if they differ.
     let mut rows: BTreeMap<&str, (BTreeSet<&str>, &str)> = BTreeMap::new();
@@ -339,7 +345,7 @@ fn list(people: &[(String, &str)], packages: &[Package], angle: &str) -> String 
     let _ = writeln!(
         out,
         "The release zip carries these next to the program. Their notices are in \
-         `LICENSES.chromium.html`, which ships with them.\n"
+         `LICENSES.chromium.html` and, for Spout, `LICENSE.spout.txt`, which ship with them.\n"
     );
     let _ = writeln!(out, "| Component | Licence | Source |\n|---|---|---|");
     let _ = writeln!(
@@ -356,6 +362,11 @@ fn list(people: &[(String, &str)], packages: &[Package], angle: &str) -> String 
         out,
         "| vulkan-1.dll, the Khronos Vulkan loader, from Electron {angle} | Apache-2.0 | \
          https://github.com/KhronosGroup/Vulkan-Loader |"
+    );
+    let _ = writeln!(
+        out,
+        "| SpoutLibrary.dll, Spout {spout}, for Spout output and input | BSD-2-Clause | \
+         https://github.com/leadedge/Spout2 |"
     );
     let _ = writeln!(out, "\n## Crates\n");
     let _ = writeln!(

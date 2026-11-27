@@ -202,7 +202,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-gfx
 
-47 decision(s).
+48 decision(s).
 
 - [D40](decisions/D40.md): our own `log` backend in `strobe-diag`, not tracing or env_logger
 - [D41](decisions/D41.md): unsafe is allowed in exactly one `strobe-diag` file
@@ -251,6 +251,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D559](decisions/D559.md): /play rebuilds its engine when the WebGL context comes back
 - [D573](decisions/D573.md): Sharing works the way VJ tools do: saved, sized, blacked out, UYVY on the GPU, idle with no receivers
 - [D575](decisions/D575.md): Spout and NDI input are live media sources, `spout:<name>` and `ndi:<name>`, on the webcam's capture path
+- [D576](decisions/D576.md): Spout's library ships in the release zip, pinned like ANGLE
 
 ## strobe-io
 
@@ -421,7 +422,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## xtask
 
-31 decision(s).
+32 decision(s).
 
 - [D50](decisions/D50.md): repository tooling is an `xtask` crate, not examples or scripts
 - [D63](decisions/D63.md): the Windows cross-check from Linux now excludes `strobe-app` too
@@ -454,6 +455,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D551](decisions/D551.md): `--diagnose` raises its box only when nothing reads its output, so a harness run ends
 - [D552](decisions/D552.md): the website and its wasm engine are built and played in CI, as a lane of their own
 - [D569](decisions/D569.md): the site's `npm ci` skips `onnxruntime-node`'s CUDA download
+- [D576](decisions/D576.md): Spout's library ships in the release zip, pinned like ANGLE
 
 ## CI and releases
 

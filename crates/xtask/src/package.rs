@@ -17,8 +17,8 @@
 //! any zip, unpacks it into a temporary folder (never the checkout, so
 //! nothing it runs can find a file the user would not have), and checks:
 //!
-//! - **the file list**: the program, the four native DLLs and their licence
-//!   file, the scene library (every scene in `scenes/`), README, LICENSE,
+//! - **the file list**: the program, the native DLLs (ANGLE's four and
+//!   Spout's library, D576) and each bundle's licence file, the scene library (every scene in `scenes/`), README, LICENSE,
 //!   THIRD_PARTY.md and the full notices, and nothing else;
 //! - **the native DLLs** against `scripts/native-deps.json` (D536);
 //! - **the notices** are the generated file, not an empty one;
@@ -175,8 +175,9 @@ pub(crate) fn package(args: &PackageArgs) -> Result<(PathBuf, PathBuf)> {
         }
         copy(&from, &staging.join(&file))?;
     }
-    let licence = licence_file(&manifest)?;
-    copy(&angle_dir.join(&licence), &staging.join(&licence))?;
+    for licence in native::licence_files(&manifest)? {
+        copy(&angle_dir.join(&licence), &staging.join(&licence))?;
+    }
 
     let notices = root.join("target").join("THIRD-PARTY-NOTICES.txt");
     crate::credits::run(false, Some(&notices))?;
@@ -200,33 +201,10 @@ pub(crate) fn package(args: &PackageArgs) -> Result<(PathBuf, PathBuf)> {
     Ok((zip, symbols_zip))
 }
 
-/// The pinned native files, `(name, sha256)`.
+/// The pinned native files of every bundle, `(name, sha256)`: ANGLE's and
+/// Spout's library (D576).
 fn native_files(manifest: &serde_json::Value) -> Result<Vec<(String, String)>> {
-    manifest["angle"]["files"]
-        .as_array()
-        .context("the manifest has no angle.files")?
-        .iter()
-        .map(|file| {
-            Ok((
-                file["name"]
-                    .as_str()
-                    .context("a file without a name")?
-                    .to_owned(),
-                file["sha256"]
-                    .as_str()
-                    .context("a file without a sha256")?
-                    .to_owned(),
-            ))
-        })
-        .collect()
-}
-
-/// The licence file that travels with the native files.
-fn licence_file(manifest: &serde_json::Value) -> Result<String> {
-    manifest["angle"]["licence_file"]
-        .as_str()
-        .map(str::to_owned)
-        .context("the manifest has no angle.licence_file")
+    native::pinned_files(manifest)
 }
 
 /// Copies one file, naming it on failure.
@@ -334,10 +312,10 @@ pub(crate) fn check(args: &CheckArgs, work: &Path) -> Result<Checked> {
     };
     let manifest = native::manifest()?;
     let files = native_files(&manifest)?;
-    let licence = licence_file(&manifest)?;
 
     // The file list, both ways.
-    let mut expected: Vec<String> = vec!["strobe.exe".to_owned(), "scenes".to_owned(), licence];
+    let mut expected: Vec<String> = vec!["strobe.exe".to_owned(), "scenes".to_owned()];
+    expected.extend(native::licence_files(&manifest)?);
     expected.extend(files.iter().map(|(name, _)| name.clone()));
     expected.extend(DOCS.iter().map(|d| (*d).to_owned()));
     let present: Vec<String> = std::fs::read_dir(root)?
@@ -483,6 +461,18 @@ pub(crate) fn check(args: &CheckArgs, work: &Path) -> Result<Checked> {
                 pinned,
                 "`strobe --diagnose` ran and found the pinned ANGLE beside it".to_owned(),
                 format!("`strobe --diagnose` ran but did not verify ANGLE:\n{report}"),
+            );
+            // The program itself must find Spout's library beside it, as
+            // Spout output and input do (D576): a package without it passed
+            // every check for v0.5.0.
+            let spout = report
+                .lines()
+                .any(|line| line.contains("spout") && line.contains("matches the pin"));
+            note(
+                &mut checked,
+                spout,
+                "`strobe --diagnose` found the pinned Spout library beside it".to_owned(),
+                format!("`strobe --diagnose` did not find the pinned Spout library:\n{report}"),
             );
             checked.diagnose = Some(report);
         }
@@ -907,11 +897,15 @@ mod tests {
     fn the_manifest_names_the_licence_file() -> Result<()> {
         let manifest = native::manifest()?;
         assert_eq!(
-            licence_file(&manifest)?,
-            "LICENSES.chromium.html",
-            "the licence travels"
+            native::licence_files(&manifest)?,
+            ["LICENSES.chromium.html", "LICENSE.spout.txt"],
+            "each bundle's licence travels"
         );
-        assert_eq!(native_files(&manifest)?.len(), 4, "four DLLs");
+        assert_eq!(
+            native_files(&manifest)?.len(),
+            5,
+            "ANGLE's four DLLs and Spout's library (D576)"
+        );
         Ok(())
     }
 }

@@ -43,6 +43,12 @@ which backend proved a claim.
 
 ### In flight
 
+- **Spout's library ships in the release zip (2026-11-27, D576, v0.5.1).**
+  v0.5.0's Spout output and input asked people to install Spout, whose
+  installer does not provide the library, so Spout did not work for the
+  first customer to try it. `SpoutLibrary.dll` (2.007.018, static runtime)
+  is now pinned in `scripts/native-deps.json` beside ANGLE, packaged with
+  its licence, and checked by the package check through `--diagnose`.
 - **NDI and Spout output: built to the surveyed tools' feature set
   (2026-11-26, D570 to D573).** M-06's research page now includes a survey
   of how Synesthesia, Resolume, TouchDesigner, MadMapper, OBS, vMix and

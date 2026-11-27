@@ -106,6 +106,7 @@ pub fn report() -> String {
             .and_then(|exe| exe.parent().map(Path::to_path_buf))
     {
         rows.push(("angle".to_string(), angle_status(&dir)));
+        rows.push(("spout".to_string(), spout_status(&dir)));
         rows.push(("angle.loaded".to_string(), angle_loaded()));
     }
     diag::system_report(&rows)
@@ -192,6 +193,38 @@ pub fn angle_status(dir: &Path) -> String {
     parts.join("; ")
 }
 
+/// Whether Spout's library beside the program is the pinned one (D576): the
+/// first thing to rule out when Spout output or input says it cannot start.
+pub fn spout_status(dir: &Path) -> String {
+    let Ok(manifest) = serde_json::from_str::<serde_json::Value>(NATIVE_DEPS) else {
+        return "the built-in pin did not parse".to_string();
+    };
+    let spout = &manifest["spout"];
+    let version = spout["version"].as_str().unwrap_or("?");
+    let Some((name, pinned)) = spout["files"]
+        .as_array()
+        .and_then(|files| files.first())
+        .and_then(|file| Some((file["name"].as_str()?, file["sha256"].as_str()?)))
+    else {
+        return "the built-in pin names no Spout library".to_string();
+    };
+    match std::fs::read(dir.join(name)) {
+        Ok(bytes) => {
+            let digest = sha2::Sha256::digest(&bytes);
+            let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+            if hex == pinned {
+                format!("{version}, {name} matches the pin")
+            } else {
+                format!(
+                    "{name} is not the pinned {version} ({})",
+                    hex.get(..12).unwrap_or(&hex)
+                )
+            }
+        }
+        Err(_) => format!("{name} is not beside the program: Spout cannot start"),
+    }
+}
+
 /// Prints the report, saves it, and (in a release build, which has no
 /// console on Windows) shows where it was saved, in a box that does not
 /// hold the process open (D499).
@@ -219,6 +252,26 @@ pub fn run() {
 mod tests {
     use super::*;
     use anyhow::Result;
+
+    #[test]
+    fn a_folder_without_spouts_library_says_spout_cannot_start() -> Result<()> {
+        let dir = std::env::temp_dir().join(format!("strobe-spout-status-{}", std::process::id()));
+        std::fs::create_dir_all(&dir)?;
+        let empty = spout_status(&dir);
+        std::fs::write(dir.join("SpoutLibrary.dll"), b"not the pinned build")?;
+        let wrong = spout_status(&dir);
+        // Scratch space; a leftover is harmless.
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            empty.contains("not beside the program"),
+            "a missing library is named: {empty}"
+        );
+        assert!(
+            wrong.contains("not the pinned 2.007.018"),
+            "another build is told apart from the shipped one: {wrong}"
+        );
+        Ok(())
+    }
 
     #[test]
     fn the_probe_always_says_something_about_gl() -> Result<()> {

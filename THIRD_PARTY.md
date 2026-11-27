@@ -11,13 +11,14 @@ Strobe is MIT-licensed with the Commons Clause ([LICENSE](LICENSE)). It is built
 
 ## Shipped beside strobe.exe
 
-The release zip carries these next to the program. Their notices are in `LICENSES.chromium.html`, which ships with them.
+The release zip carries these next to the program. Their notices are in `LICENSES.chromium.html` and, for Spout, `LICENSE.spout.txt`, which ship with them.
 
 | Component | Licence | Source |
 |---|---|---|
 | ANGLE (libEGL.dll, libGLESv2.dll), from Electron 38.2.0 | BSD-3-Clause | https://chromium.googlesource.com/angle/angle |
 | d3dcompiler_47.dll, Microsoft's Direct3D shader compiler, from Electron 38.2.0 | Microsoft redistributable | https://github.com/electron/electron |
 | vulkan-1.dll, the Khronos Vulkan loader, from Electron 38.2.0 | Apache-2.0 | https://github.com/KhronosGroup/Vulkan-Loader |
+| SpoutLibrary.dll, Spout 2.007.018, for Spout output and input | BSD-2-Clause | https://github.com/leadedge/Spout2 |
 
 ## Crates
 

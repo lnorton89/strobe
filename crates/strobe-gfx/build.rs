@@ -58,12 +58,15 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// What `fetch-angle.ps1` puts beside the executables.
-const DLLS: [&str; 4] = [
+/// What `fetch-angle.ps1` puts beside the executables: ANGLE's files, and
+/// Spout's library, which a development build needs beside it as much as
+/// the release zip does (D576).
+const DLLS: [&str; 5] = [
     "libEGL.dll",
     "libGLESv2.dll",
     "d3dcompiler_47.dll",
     "vulkan-1.dll",
+    "SpoutLibrary.dll",
 ];
 
 /// Turns the fetch off when set to anything.

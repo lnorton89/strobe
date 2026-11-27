@@ -106,8 +106,8 @@ fn spout_action(cause: Cause) -> &'static str {
         }
         Cause::Unreadable => "syn_Media is black; the sender's picture could not be read",
         Cause::Unsupported => {
-            "syn_Media is black; Spout input needs Windows and Spout's library: install Spout from \
-             spout.zeal.co, or put SpoutLibrary.dll beside Strobe"
+            "syn_Media is black; Spout input needs Windows and SpoutLibrary.dll, which ships \
+             beside strobe.exe: unpack the whole release zip again"
         }
         Cause::Busy | Cause::Blocked | Cause::Other => {
             "syn_Media is black, and Strobe keeps trying the sender by name"
