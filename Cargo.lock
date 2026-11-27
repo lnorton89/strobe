@@ -3496,7 +3496,7 @@ dependencies = [
 
 [[package]]
 name = "strobe-app"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "base64",
@@ -3533,7 +3533,7 @@ dependencies = [
 
 [[package]]
 name = "strobe-audio"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -3548,7 +3548,7 @@ dependencies = [
 
 [[package]]
 name = "strobe-autocontrol"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -3564,7 +3564,7 @@ dependencies = [
 
 [[package]]
 name = "strobe-bench"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -3576,7 +3576,7 @@ dependencies = [
 
 [[package]]
 name = "strobe-capture"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "image",
@@ -3586,7 +3586,7 @@ dependencies = [
 
 [[package]]
 name = "strobe-conventions"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -3594,7 +3594,7 @@ dependencies = [
 
 [[package]]
 name = "strobe-diag"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "crash-handler",
@@ -3606,7 +3606,7 @@ dependencies = [
 
 [[package]]
 name = "strobe-forge"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "base64",
@@ -3623,7 +3623,7 @@ dependencies = [
 
 [[package]]
 name = "strobe-gfx"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "glow",
@@ -3640,7 +3640,7 @@ dependencies = [
 
 [[package]]
 name = "strobe-io"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "log",
@@ -3655,7 +3655,7 @@ dependencies = [
 
 [[package]]
 name = "strobe-output"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "grafton-ndi",
@@ -3665,7 +3665,7 @@ dependencies = [
 
 [[package]]
 name = "strobe-playlist"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "proptest",
@@ -3677,7 +3677,7 @@ dependencies = [
 
 [[package]]
 name = "strobe-projector"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -3693,7 +3693,7 @@ dependencies = [
 
 [[package]]
 name = "strobe-remote"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "getrandom 0.4.3",
@@ -3708,7 +3708,7 @@ dependencies = [
 
 [[package]]
 name = "strobe-scene"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "log",
@@ -3721,7 +3721,7 @@ dependencies = [
 
 [[package]]
 name = "strobe-script"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "rquickjs",
@@ -3732,7 +3732,7 @@ dependencies = [
 
 [[package]]
 name = "strobe-shadertoy"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -3753,11 +3753,11 @@ dependencies = [
 
 [[package]]
 name = "strobe-ssf-lib"
-version = "0.4.0"
+version = "0.5.0"
 
 [[package]]
 name = "strobe-web"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "js-sys",
@@ -5040,7 +5040,7 @@ checksum = "e450f9b2ed1dff33c94c12589a87338689467b9c4f5d8a5710bd09a847d2c8a7"
 
 [[package]]
 name = "xtask"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "clap",
