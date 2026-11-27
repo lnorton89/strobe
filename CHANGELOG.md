@@ -13,6 +13,20 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 Nothing yet — the latest release is the tip of `master`.
 
+## [0.5.1] - 2026-11-27
+
+### Fixed
+
+- **output:** Spout's library ships in the release zip, so Spout works with nothing installed (D576) ([`f89d957`](https://github.com/lnorton89/strobe/commit/f89d9574b629140a0e8f70233eac57483c7060fa))
+
+### Documentation
+
+- v0.5.0's archives pass the release-candidate harness on LIGHTNING (#127) ([`b257703`](https://github.com/lnorton89/strobe/commit/b257703ffb03b35e5924a1e676d65819d6b98fa5))
+
+### Internal
+
+- version 0.5.1 ([`b30ee00`](https://github.com/lnorton89/strobe/commit/b30ee00db74d706a9868db75d031938a2196dd71))
+
 ## [0.5.0] - 2026-11-27
 
 ### Added
@@ -959,7 +973,8 @@ Nothing yet — the latest release is the tip of `master`.
 - snapshot after usage-limit interruption ([`2bc621b`](https://github.com/lnorton89/strobe/commit/2bc621bcc4eb79d6aa86421cf371a9921c91caf1))
 - snapshot after usage-limit interruption ([`58e9dd9`](https://github.com/lnorton89/strobe/commit/58e9dd96d29e4bb4f2951e553da57788399022b9))
 
-[Unreleased]: https://github.com/lnorton89/strobe/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/lnorton89/strobe/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/lnorton89/strobe/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/lnorton89/strobe/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/lnorton89/strobe/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/lnorton89/strobe/compare/v0.2.0...v0.3.0
