@@ -1967,6 +1967,38 @@ impl Texture {
     pub fn raw(&self) -> glow::Texture {
         self.raw
     }
+
+    /// This texture as a sender may share it (D570): its GL name, its target
+    /// and its size.
+    ///
+    /// Valid only while this texture lives and the calling thread has its
+    /// context current. A texture-sharing library takes it for the duration
+    /// of one call and stores nothing, so the description is made and used
+    /// inside a frame and never kept. Native only: a browser has no Spout
+    /// or NDI to share with, and WebGL's names are not numbers.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn share(&self) -> TextureShare {
+        TextureShare {
+            id: self.raw.0.get(),
+            target: self.target,
+            width: self.width,
+            height: self.height,
+        }
+    }
+}
+
+/// A texture described to a sender that shares GPU memory (Spout, D570).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TextureShare {
+    /// The GL name, valid while the renderer's target lives and the frame's
+    /// context is current.
+    pub id: u32,
+    /// The GL target: `GL_TEXTURE_2D`.
+    pub target: u32,
+    /// Width in texels.
+    pub width: i32,
+    /// Height in texels.
+    pub height: i32,
 }
 
 impl Drop for Texture {

@@ -40,6 +40,7 @@ strobe-capture = { path = "crates/strobe-capture" }
 # crate that only converts or analyses shaders must not pull a C compiler
 # into the Windows cross-check. The app opts in.
 strobe-shadertoy = { path = "crates/strobe-shadertoy", default-features = false }
+strobe-output = { path = "crates/strobe-output" }
 
 anyhow = "1"
 # Property tests over the parsers and rewriters that take outside input
@@ -109,6 +110,11 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg"]
 # through `image` instead. Never `input-native`, which turns on the Linux
 # backend too and its bindgen (libclang) build.
 nokhwa = { version = "0.10.11", default-features = false, features = ["input-msmf"] }
+# Sharing the output (D570, M-06). libloading finds a Spout library at
+# runtime, so no import library and no C++ shim is needed; NDI's own runtime is
+# loaded by grafton-ndi, which needs no SDK at build time.
+libloading = "0.8"
+grafton-ndi = { version = "3.0", default-features = false }
 # Decoding the desktop remote's JPEG frames (D275). Already in the tree
 # through ureq, so it adds no crate.
 base64 = "0.23"

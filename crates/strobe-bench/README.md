@@ -54,6 +54,7 @@ Every flag is defined in the clap `Cli`:
 | `--show-window` | off | Start with the tiny off-screen window instead of a hidden one. |
 | `--window-size WxH` | `16x16` | Window contexts: the stand-in window's client size. Renders never depend on it; it is a bisection tool for drivers that draw black above some size (D296). Windows caps it at about the screen size; the report's context line gives the size the window got. |
 | `--probe` | off | Instead of benchmarking, clear, draw into and read back targets at a ladder of sizes plus `--size`, and print the viewport the driver keeps. Writes `probe.md` (D296). |
+| `--share` | off | Instead of benchmarking, time preparing a `--size` picture for Spout and NDI (a fixed-size draw, blackout, the UYVY pack and its asynchronous readback) against the first cut's synchronous readback, and check the NDI ring's pacing at 60 Hz. Writes `share.md` (D573). |
 | `--readback` | off | Instead of benchmarking, check the `textureFinalPass` readback on this context (latency, cost, a busy GPU, a resize, a lost context). Writes `readback.md` (D245). |
 | `--api desktop\|gles` | unset | Dialect for headless (desktop by default). In window mode the backend decides, and a contradiction with `--gl` is an error (D72). |
 | `--full` | off | RGBA32F instead of the default RGBA16F for `FLOAT` passes. |

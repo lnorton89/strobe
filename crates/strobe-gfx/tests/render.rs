@@ -2455,3 +2455,108 @@ fn a_pass_reading_more_textures_than_the_gpu_allows_fails_to_load() -> Result<()
     }
     Ok(())
 }
+
+// ---- Sharing: the share stage (D573) ----------------------------------------------
+
+/// BT.709 limited-range UYVY of one pixel pair, as `strobe_output::pixel`
+/// computes it: the reference the GPU packing must match.
+fn uyvy_pair(a: [u8; 3], b: [u8; 3]) -> [u8; 4] {
+    let luma = |[r, g, b]: [f32; 3]| 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    let f = |p: [u8; 3]| p.map(f32::from);
+    let y = |p: [u8; 3]| (16.0 + luma(f(p)) * 219.0 / 255.0).round() as u8;
+    let m = [0, 1, 2].map(|i| (f32::from(a[i]) + f32::from(b[i])) / 2.0);
+    let ym = luma(m);
+    let cb = (128.0 + (m[2] - ym) * 224.0 / 255.0 / 1.8556).round() as u8;
+    let cr = (128.0 + (m[0] - ym) * 224.0 / 255.0 / 1.5748).round() as u8;
+    [cb, y(a), cr, y(b)]
+}
+
+#[test]
+fn the_share_stage_packs_uyvy_top_row_first_and_blacks_out() -> Result<()> {
+    use strobe_gfx::share::{ShareStage, Want};
+    for api in [Api::DesktopCore33, Api::Gles30] {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let gl = headless.gl();
+        let caps = Caps::from_info(gl.info());
+        // A 4x2 picture, uploaded bottom row first as GL stores it: the top
+        // row is red then green, the bottom row blue then white.
+        let (red, green, blue, white) = ([255, 0, 0], [0, 255, 0], [0, 0, 255], [255, 255, 255]);
+        let mut pixels = Vec::new();
+        for rgb in [blue, blue, white, white, red, red, green, green] {
+            pixels.extend_from_slice(&[rgb[0], rgb[1], rgb[2], 255]);
+        }
+        let source = gl
+            .texture_2d(
+                4,
+                2,
+                strobe_gfx::gl::Format::Rgba8,
+                strobe_gfx::gl::Sampling::LINEAR_CLAMP,
+                Some(&pixels),
+            )
+            .map_err(|e| anyhow!("{api:?}: texture: {e}"))?;
+        let mut stage = ShareStage::new(gl, &caps).map_err(|e| anyhow!("{api:?}: stage: {e}"))?;
+        let want = Want {
+            size: None,
+            black: false,
+            texture: true,
+            pixels: true,
+        };
+        let mut packed = None;
+        for _ in 0..30 {
+            let shared = stage
+                .prepare(&source, want)
+                .map_err(|e| anyhow!("{api:?}: prepare: {e}"))?;
+            assert_eq!(
+                shared.map(|t| (t.width, t.height)),
+                Some((4, 2)),
+                "{api:?}: at its own size the picture's texture is shared as it is"
+            );
+            gl.finish();
+            if let Some((data, size)) = stage.take_pixels() {
+                packed = Some((data.to_vec(), size));
+                break;
+            }
+        }
+        let Some((data, size)) = packed else {
+            return Err(anyhow!("{api:?}: no UYVY frame arrived in 30 frames"));
+        };
+        assert_eq!(size, [4, 2], "{api:?}: the picture's size");
+        let expected: Vec<u8> = [
+            uyvy_pair(red, red),
+            uyvy_pair(green, green),
+            uyvy_pair(blue, blue),
+            uyvy_pair(white, white),
+        ]
+        .concat();
+        assert_eq!(
+            data.len(),
+            expected.len(),
+            "{api:?}: four bytes a pixel pair"
+        );
+        for (at, (got, want)) in data.iter().zip(&expected).enumerate() {
+            assert!(
+                got.abs_diff(*want) <= 1,
+                "{api:?}: byte {at} is {got}, BT.709 says {want} (top row first)"
+            );
+        }
+
+        let black = Want {
+            size: Some([6, 4]),
+            black: true,
+            ..want
+        };
+        let shared = stage
+            .prepare(&source, black)
+            .map_err(|e| anyhow!("{api:?}: prepare black: {e}"))?;
+        assert_eq!(
+            shared.map(|t| (t.width, t.height)),
+            Some((6, 4)),
+            "{api:?}: a fixed size is shared at that size"
+        );
+        let error = gl.error();
+        assert!(error.is_none(), "{api:?}: unexpected GL error {error:?}");
+    }
+    Ok(())
+}

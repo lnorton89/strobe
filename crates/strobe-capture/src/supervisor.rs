@@ -112,6 +112,7 @@ struct Reporter {
 impl Reporter {
     fn fail(&self, problem: &Problem) {
         let failure = Failure {
+            kind: self.sink.kind(),
             camera: self.camera.clone(),
             cause: problem.cause,
             detail: problem.detail.clone(),
@@ -126,7 +127,7 @@ impl Reporter {
 
     fn up(&self) {
         if self.down.swap(false, Ordering::AcqRel) {
-            log::info!("camera \"{}\" is back", self.camera);
+            log::info!("{} \"{}\" is back", self.sink.kind(), self.camera);
             self.sink.recovered(&self.camera);
         }
     }
@@ -203,7 +204,11 @@ pub(crate) fn spawn(backend: Arc<dyn Backend>, timing: Timing, name: String, sin
 }
 
 fn watch(camera: &Camera) {
-    log::info!("camera \"{}\": starting", camera.reporter.camera);
+    log::info!(
+        "{} \"{}\": starting",
+        camera.reporter.sink.kind(),
+        camera.reporter.camera
+    );
     let mut current = start_reader(camera);
     let mut left_behind: Vec<Arc<Reader>> = Vec::new();
     loop {
@@ -214,7 +219,8 @@ fn watch(camera: &Camera) {
                 reader.abandoned.store(true, Ordering::Release);
             }
             log::info!(
-                "camera \"{}\": closed, no one shows it",
+                "{} \"{}\": closed, no one shows it",
+                camera.reporter.sink.kind(),
                 camera.reporter.camera
             );
             return;
@@ -276,7 +282,7 @@ fn read(camera: &Camera, reader: &Reader) {
     let mut spare: Option<Vec<u8>> = None;
     while !stop() {
         reader.set_busy(Some(Instant::now()));
-        let opened = open(camera.backend.as_ref(), name);
+        let opened = open(camera.backend.as_ref(), name, camera.reporter.sink.kind());
         reader.set_busy(None);
         if stop() {
             return;
@@ -291,7 +297,11 @@ fn read(camera: &Camera, reader: &Reader) {
                 continue;
             }
         };
-        log::info!("camera \"{name}\": open, {}", stream.describe());
+        log::info!(
+            "{} \"{name}\": open, {}",
+            camera.reporter.sink.kind(),
+            stream.describe()
+        );
         let mut cost = Cost::new();
         loop {
             reader.set_busy(Some(Instant::now()));
@@ -339,15 +349,15 @@ fn read(camera: &Camera, reader: &Reader) {
 }
 
 /// Opens `name` if the backend lists it.
-fn open(backend: &dyn Backend, name: &str) -> Result<Box<dyn crate::Stream>, Problem> {
+fn open(backend: &dyn Backend, name: &str, kind: &str) -> Result<Box<dyn crate::Stream>, Problem> {
     let listed = backend.list()?;
     if !listed.iter().any(|listed| listed == name) {
         return Err(Problem {
             cause: Cause::NotFound,
             detail: if listed.is_empty() {
-                "no camera is listed".to_string()
+                format!("no {kind} is listed")
             } else {
-                format!("not listed; the cameras are {}", listed.join(", "))
+                format!("not listed; the {kind}s are {}", listed.join(", "))
             },
         });
     }

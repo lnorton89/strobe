@@ -30,6 +30,7 @@ crates/
 ├── strobe-remote       LAN remote: protocol, app-thread bridge, pairing, and the opt-in listener
 ├── strobe-projector    Projector power: PJLink + NTCONTROL, the token-protected web page, `pj` and its headless service
 ├── strobe-capture      Webcams for syn_Media: listing, a capture thread with a watchdog and reconnect by name, RGBA conversion (no GL)
+├── strobe-output       Sharing the finished picture (NDI, Spout): the output frame, BGRA and UYVY packing, the sender seam and its failure policy (no GL)
 └── strobe-web          The website's /play sandbox: the scene player on a WebGL2 canvas and the audio DSP, as wasm
 ```
 
@@ -59,7 +60,8 @@ flowchart TD
 ```
 
 Arrows point at what a crate depends on; this is `cargo metadata`'s
-workspace graph. `strobe-playlist`, `strobe-remote`, `strobe-capture` and
+workspace graph. `strobe-playlist`, `strobe-remote`, `strobe-capture`,
+`strobe-output` and
 `strobe-diag` depend on no Strobe crate; `strobe-io` brings in `midir` and `rosc`, and
 `strobe-remote` `serde`, `sha1`, `sha2` and `getrandom`. The app runs
 `strobe-autocontrol` in a worker process (D202); the browser build runs it on
@@ -111,8 +113,26 @@ the page's one context, a step at a time (D558).
   Media Foundation, Windows only; no backend elsewhere yet) and convert each
   picture to RGBA into a `Sink`. The app's sink writes into a
   `strobe_gfx::live::Mailbox`, so neither crate knows the other, and the
-  player asks for a camera through the `LiveSources` hook the app installs
-  at start (`strobe_app::camera`).
+  player asks for a live source through the `LiveSources` hook the app
+  installs at start (`strobe_app::live`). Spout and NDI input run on the
+  same supervisor as two more `Backend`s (`strobe_app::share_input`), over
+  `strobe-output`'s receivers; a media choice names its kind as
+  `camera:`, `spout:` or `ndi:` (`strobe_scene::live`, D575).
+- `strobe-output` is the seam a finished picture leaves through (D570):
+  the frame, the BGRA and UYVY packing a sender wants, `Sink` for one
+  destination and `Output` with the show's failure policy, plus probes for
+  the optional NDI and Spout runtimes. No GL, no Strobe crate, no window:
+  the renderer hands it pixels, or lends it a texture for Spout's
+  zero-copy path. Spout (Windows) calls the installed `SpoutLibrary.dll`'s
+  vtable through `libloading` (D571, D572); NDI is behind the crate's `ndi`
+  feature and loads its runtime at run time. `strobe_gfx::share::ShareStage`
+  prepares the picture for them on the GPU: scaled to a fixed size, black
+  in blackout, and packed to UYVY for NDI and read back through a fenced
+  ring (D573). The app taps it in `strobe_app::output`, after the post stage
+  and on the picture rather than the letterboxed window; the stage and the
+  Spout sender live in the context stack (`GpuShare`) and go with it.
+  Settings > Output > Sharing (saved) or `--spout`, `--ndi` and friends (one
+  run) turn a sender on.
 - `strobe-web` is the website's sandbox engine, built for
   `wasm32-unknown-unknown` (D524). It takes `strobe-gfx` without its
   `native` feature (no glutin, winit or offscreen worker: a `Gl` comes from

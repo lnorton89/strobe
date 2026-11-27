@@ -185,6 +185,15 @@ const ADAPTIVE: &str = "Adaptive resolution";
 const SCALE: &str = "Render scale";
 /// The label of the switch that prerenders the library's scenes (D542).
 pub const PRERENDER: &str = "Prerender scenes";
+const SPOUT: &str = "Spout";
+const SPOUT_NAME: &str = "Spout name";
+const SPOUT_CLEAN: &str = "Clean feed";
+const NDI: &str = "NDI";
+const NDI_NAME: &str = "NDI name";
+const NDI_GROUPS: &str = "NDI groups";
+const NDI_FPS: &str = "NDI frame rate";
+const NDI_ABOUT: &str = "About NDI";
+const SHARE_SIZE: &str = "Shared size";
 const THEME: &str = "Theme";
 const DENSITY: &str = "Density";
 const REDUCE_MOTION: &str = "Reduce motion";
@@ -206,7 +215,7 @@ struct Entry {
 
 /// Every row search finds, in page order. The Shortcuts page's rows are
 /// the commands, matched from [`CommandId::ALL`] instead.
-const INDEX: [Entry; 33] = [
+const INDEX: [Entry; 42] = [
     Entry {
         page: SettingsPage::Output,
         title: OUTPUT_WINDOW,
@@ -226,6 +235,51 @@ const INDEX: [Entry; 33] = [
         page: SettingsPage::Output,
         title: PRERENDER,
         words: "precompile shaders warm cache lag stutter first load",
+    },
+    Entry {
+        page: SettingsPage::Output,
+        title: SPOUT,
+        words: "share sharing texture resolume obs touchdesigner madmapper notch syphon output send",
+    },
+    Entry {
+        page: SettingsPage::Output,
+        title: SPOUT_NAME,
+        words: "sender spout name rename",
+    },
+    Entry {
+        page: SettingsPage::Output,
+        title: SPOUT_CLEAN,
+        words: "spout second sender raw pre post unprocessed clean feed blackout",
+    },
+    Entry {
+        page: SettingsPage::Output,
+        title: NDI,
+        words: "share sharing network stream send output obs vmix studio monitor",
+    },
+    Entry {
+        page: SettingsPage::Output,
+        title: NDI_NAME,
+        words: "sender ndi name rename source",
+    },
+    Entry {
+        page: SettingsPage::Output,
+        title: NDI_GROUPS,
+        words: "ndi group groups network",
+    },
+    Entry {
+        page: SettingsPage::Output,
+        title: NDI_FPS,
+        words: "ndi fps frame rate cap limit bandwidth",
+    },
+    Entry {
+        page: SettingsPage::Output,
+        title: NDI_ABOUT,
+        words: "ndi runtime tools install trademark licence license",
+    },
+    Entry {
+        page: SettingsPage::Output,
+        title: SHARE_SIZE,
+        words: "spout ndi resolution size width height 1080p 720p 4k fixed constant",
     },
     Entry {
         page: SettingsPage::Output,
@@ -698,6 +752,7 @@ fn output(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec
             |ui| monitor_picker(ui, model, actions),
         );
     });
+    sharing(ui, theme, &mut model.ui.sharing, actions);
     form::group(ui, theme, "Rendering", |group| {
         let timed = model.perf.has_timer;
         let mut adaptive = model.perf.adaptive;
@@ -726,6 +781,201 @@ fn output(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec
         });
         prerender(group, theme, &model.ui.prerender, actions);
     });
+}
+
+/// The sizes the shared picture can be given, besides the picture's own.
+const SHARE_SIZES: [[u32; 2]; 4] = [[1280, 720], [1920, 1080], [2560, 1440], [3840, 2160]];
+
+/// The NDI frame-rate caps offered; 0 sends every frame.
+const NDI_RATES: [u32; 5] = [0, 60, 50, 30, 25];
+
+/// The Sharing group (D573): Spout and NDI, each with its name, then NDI's
+/// options, the shared size, the link NDI's licence asks for beside the
+/// choice, and the app's line on what is going out. Every change is one
+/// [`Action::SetSharing`] with the whole choice, applied at once and saved.
+fn sharing(
+    ui: &mut Ui,
+    theme: &Palette,
+    state: &mut super::state::SharingUi,
+    actions: &mut Vec<Action>,
+) {
+    form::group(ui, theme, "Sharing", |group| {
+        let saved = state.saved.clone();
+        let mut chosen: Option<crate::prefs::SharingPref> = None;
+        let mut spout = state.live.spout;
+        let mut row = Row::new(SPOUT).description(
+            "Publishes the picture to Spout, so Resolume, OBS, TouchDesigner, MadMapper or Notch \
+             on this computer can take it as a source. The GPU texture itself is shared: nothing \
+             is read back. Windows only, with Spout 2.007's 64-bit SpoutLibrary.dll beside \
+             Strobe; if a receiver shows nothing on an Intel GPU, turn on CPU sharing in \
+             SpoutSettings.",
+        );
+        if !state.spout_note.is_empty() {
+            row = row.note(&state.spout_note, theme.warning);
+        } else if !state.status.is_empty() {
+            row = row.note(&state.status, theme.text_muted);
+        }
+        if group.toggle(row, &mut spout).changed() {
+            let mut next = saved.clone();
+            next.spout = spout;
+            chosen = Some(next);
+        }
+        group.row(
+            Row::new(SPOUT_NAME).description("What a Spout receiver lists. Enter applies it."),
+            |ui| {
+                let field = form::field(ui, theme, &mut state.spout_draft, "Strobe", 200.0);
+                if field.lost_focus() && commit(&state.spout_draft, &saved.spout_name) {
+                    let mut next = saved.clone();
+                    state.spout_draft.trim().clone_into(&mut next.spout_name);
+                    chosen = Some(next);
+                }
+            },
+        );
+        let mut clean = state.live.spout_clean;
+        let clean_row = Row::new(SPOUT_CLEAN).description(
+            "A second Spout sender with the scene before the output's look and mirrors, which \
+             blackout leaves alone: for a mixer that wants the raw picture beside the show. Its \
+             name is typed beside the switch; Enter applies it.",
+        );
+        group.row(clean_row, |ui| {
+            ui.horizontal(|ui| {
+                if form::toggle(ui, theme, &mut clean).changed() {
+                    let mut next = saved.clone();
+                    next.spout_clean = clean;
+                    chosen = Some(next);
+                }
+                let field = form::field(ui, theme, &mut state.clean_draft, "Strobe Clean", 160.0);
+                if field.lost_focus() && commit(&state.clean_draft, &saved.spout_clean_name) {
+                    let mut next = saved.clone();
+                    state
+                        .clean_draft
+                        .trim()
+                        .clone_into(&mut next.spout_clean_name);
+                    chosen = Some(next);
+                }
+            });
+        });
+        let mut ndi = state.live.ndi;
+        let mut row = Row::new(NDI).description(
+            "Sends the picture over the network as NDI, so OBS, vMix, Resolume or NDI Studio \
+             Monitor on any computer on the network can take it. Packed to UYVY on the GPU and \
+             read back only while a receiver is connected. Needs the NDI 6 runtime, which NDI \
+             Tools installs; at 1080p60 it wants a gigabit link.",
+        );
+        if !state.ndi_note.is_empty() {
+            row = row.note(&state.ndi_note, theme.warning);
+        }
+        if group.toggle(row, &mut ndi).changed() {
+            let mut next = saved.clone();
+            next.ndi = ndi;
+            chosen = Some(next);
+        }
+        group.row(
+            Row::new(NDI_NAME).description(
+                "What an NDI receiver lists, after this computer's name. Enter applies it.",
+            ),
+            |ui| {
+                let field = form::field(ui, theme, &mut state.ndi_draft, "Strobe", 200.0);
+                if field.lost_focus() && commit(&state.ndi_draft, &saved.ndi_name) {
+                    let mut next = saved.clone();
+                    state.ndi_draft.trim().clone_into(&mut next.ndi_name);
+                    chosen = Some(next);
+                }
+            },
+        );
+        group.row(
+            Row::new(NDI_GROUPS).description(
+                "Comma-separated; only receivers in a group see the stream. Empty sends to \
+                 everyone.",
+            ),
+            |ui| {
+                let field = form::field(ui, theme, &mut state.groups_draft, "Public", 200.0);
+                if field.lost_focus() && state.groups_draft.trim() != saved.ndi_groups {
+                    let mut next = saved.clone();
+                    state.groups_draft.trim().clone_into(&mut next.ndi_groups);
+                    chosen = Some(next);
+                }
+            },
+        );
+        group.row(
+            Row::new(NDI_FPS).description(
+                "The most frames a second NDI sends: a lower rate halves the network and the \
+                 readback.",
+            ),
+            |ui| {
+                egui::ComboBox::from_id_salt("ndi-fps")
+                    .selected_text(rate_label(state.live.ndi_fps))
+                    .show_ui(ui, |ui| {
+                        for rate in NDI_RATES {
+                            if ui
+                                .selectable_label(state.live.ndi_fps == rate, rate_label(rate))
+                                .clicked()
+                            {
+                                let mut next = saved.clone();
+                                next.ndi_fps = rate;
+                                chosen = Some(next);
+                            }
+                        }
+                    });
+            },
+        );
+        group.row(
+            Row::new(SHARE_SIZE).description(
+                "The size Spout and NDI share the picture at: the picture's own, which follows \
+                 the render scale, or a fixed size that stays put whatever the scene renders at.",
+            ),
+            |ui| {
+                egui::ComboBox::from_id_salt("share-size")
+                    .selected_text(size_label(state.live.size))
+                    .show_ui(ui, |ui| {
+                        let options =
+                            std::iter::once(None).chain(SHARE_SIZES.into_iter().map(Some));
+                        for size in options {
+                            if ui
+                                .selectable_label(state.live.size == size, size_label(size))
+                                .clicked()
+                            {
+                                let mut next = saved.clone();
+                                next.size = size;
+                                chosen = Some(next);
+                            }
+                        }
+                    });
+            },
+        );
+        group.row(
+            Row::new(NDI_ABOUT).description(strobe_output::ndi::TRADEMARK),
+            |ui| {
+                ui.hyperlink_to("ndi.video", strobe_output::ndi::TOOLS_URL);
+            },
+        );
+        if let Some(next) = chosen {
+            actions.push(Action::SetSharing(next));
+        }
+    });
+}
+
+/// Whether a typed name is a new one worth applying: not blank, not the same.
+fn commit(draft: &str, current: &str) -> bool {
+    let draft = draft.trim();
+    !draft.is_empty() && draft != current
+}
+
+/// How an NDI rate cap reads.
+fn rate_label(rate: u32) -> String {
+    if rate == 0 {
+        "Every frame".to_string()
+    } else {
+        format!("{rate} fps")
+    }
+}
+
+/// How a shared size reads.
+fn size_label(size: Option<[u32; 2]>) -> String {
+    match size {
+        None => "The picture's own".to_string(),
+        Some([w, h]) => format!("{w} x {h}"),
+    }
 }
 
 /// The prerender switch (D542): applied by the app at once and saved, with
@@ -1148,6 +1398,12 @@ fn about(ui: &mut Ui, theme: &Palette, gl_summary: &str) {
         group.row(Row::new(VERSION).description(build()), |_| {});
         group.row(Row::new(GRAPHICS).description(gl_summary), |_| {});
         super::credits::project(group, theme);
+        group.row(
+            Row::new(NDI_ABOUT).description(strobe_output::ndi::TRADEMARK),
+            |ui| {
+                ui.hyperlink_to("ndi.video", "https://ndi.video");
+            },
+        );
     });
     super::credits::show(ui, theme);
 }

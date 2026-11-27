@@ -217,11 +217,55 @@ Scenes react to sound through the default **recording** device.
 - The output's look (brightness, hue, mirror, colour limits and the like)
   is under *Output (meta)* in Controls (the page or the panel's tab). It
   carries over from scene to scene.
+- **Sharing the picture with another program.** Settings > Output > Sharing
+  turns on **Spout** (Windows: Resolume, OBS with the Spout plugin,
+  TouchDesigner, MadMapper, Notch and anything else that reads Spout) or **NDI** (the network: OBS,
+  vMix, Resolume or NDI Studio Monitor on another computer). Each has a name,
+  which is what a receiver lists; type a new one and press Enter. The choice
+  is saved.
+- **What goes out** is the finished picture, after the output's look and
+  mirrors. **Blackout blackens it too**, so a mixer fed from Strobe goes dark
+  with your projector. While no scene is playing, black goes out, so a
+  receiver that connects first shows black rather than nothing. **Shared size** is the picture's own, which follows
+  the render scale, or a fixed size (720p to 4K) that a mixer input can rely
+  on whatever the scene renders at.
+- **Clean feed.** A second Spout sender, with a name of its own, carries the
+  scene before the output's look and mirrors, and blackout leaves it alone.
+  Use it when a mixer wants the raw picture beside the show, or needs to
+  keep a picture while the projector is dark.
+- **NDI options.**
+  - **Frame rate** caps how many frames a second go out (25 to 60, or every
+    frame); a lower rate eases a busy network.
+  - **Groups** limit which receivers see the stream.
+  - While no receiver is connected, Strobe does no NDI work at all.
+  - The row under Spout says what is going out: the name, the size, how many
+    NDI receivers are connected and the rate.
+- **From the command line**, for a launcher, for this run only (Settings
+  stays as you left it):
+
+  ```text
+  strobe --spout "Strobe" --spout-clean "Strobe Clean" --ndi "Strobe" --ndi-fps 30 --ndi-groups "Stage" --share-size 1920x1080
+  ```
+
+  `--share-size picture` follows the picture.
+- **Spout needs its library.** Put a **64-bit** `SpoutLibrary.dll` beside
+  `strobe.exe` (or anywhere on the `PATH`). Use the `Spout-SDK-binaries`
+  download from the Spout 2.007 release at
+  [github.com/leadedge/Spout2](https://github.com/leadedge/Spout2/releases);
+  its `MT/bin` folder needs no Visual C++ runtime. A 32-bit copy (some
+  applications ship one) cannot be loaded by the 64-bit build, and Settings
+  says so. If a receiver lists the sender but shows black, often on an Intel
+  GPU, open SpoutSettings and turn on CPU sharing.
+- **NDI needs its runtime**, which NDI Tools installs, from
+  [ndi.video/tools](https://ndi.video/tools/). Strobe loads it when NDI is
+  turned on, and says so if it is missing. NDI® is a registered trademark of
+  Vizrt NDI AB.
 
 ## Media behind a scene
 
 Scenes that read `syn_Media` show a picture, a looping folder of
-pictures (PNG or JPEG) or, on Windows, a webcam.
+pictures (PNG or JPEG) or, on Windows, a webcam, a Spout sender or an
+NDI source.
 
 - In the panel's Scene tab, **Media > Choose** takes a file or folder
   path; *Scene's own* gives the scene its own back. Dropping a picture or a folder of
@@ -232,6 +276,18 @@ pictures (PNG or JPEG) or, on Windows, a webcam.
   A camera that fails or is unplugged shows black, says so once, and comes
   back by itself when it can. **It has not yet been tried with a real
   camera**; please report what you find.
+- **Media > Spout** lists the Spout senders running on this computer
+  (Resolume, TouchDesigner, OBS with its Spout plugin, another Strobe) and
+  shows the one you click; **Media > NDI** lists the NDI sources found on
+  the network. From the command line, `--list-spout` and `--list-ndi`
+  print their names, and `--media "spout:<name>"` or `--media
+  "ndi:<name>"` shows one; a cue can name one the same way. A sender that
+  pauses keeps its last picture; one that closes shows black, says so
+  once, and comes back by itself when it starts again. Spout needs the
+  64-bit `SpoutLibrary.dll`, as Spout output does; NDI needs the NDI 6
+  runtime from NDI Tools ([ndi.video/tools](https://ndi.video/tools/)).
+  Both have been tried Strobe to Strobe, and NDI from OBS; please report
+  how other apps' feeds behave.
 - A playlist cue can name its own media, and that wins for the cue.
 - Very long sequences are shrunk to fit 192 MiB of memory rather than cut
   short.

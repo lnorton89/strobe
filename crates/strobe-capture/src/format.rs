@@ -33,6 +33,11 @@ pub enum PixelFormat {
     Rgb,
     /// Three bytes per pixel, B G R.
     Bgr,
+    /// Four bytes per pixel, R G B A: what a Spout or NDI receiver asks for
+    /// (D575). The fourth byte is kept as alpha.
+    Rgba,
+    /// Four bytes per pixel, B G R A: NDI's own order (D575).
+    Bgra,
 }
 
 impl PixelFormat {
@@ -40,7 +45,13 @@ impl PixelFormat {
     pub fn compressed(self) -> bool {
         match self {
             Self::Mjpeg => true,
-            Self::Yuy2 | Self::Nv12 | Self::Gray | Self::Rgb | Self::Bgr => false,
+            Self::Yuy2
+            | Self::Nv12
+            | Self::Gray
+            | Self::Rgb
+            | Self::Bgr
+            | Self::Rgba
+            | Self::Bgra => false,
         }
     }
 }
@@ -54,6 +65,8 @@ impl fmt::Display for PixelFormat {
             Self::Gray => "GRAY",
             Self::Rgb => "RGB",
             Self::Bgr => "BGR",
+            Self::Rgba => "RGBA",
+            Self::Bgra => "BGRA",
         })
     }
 }

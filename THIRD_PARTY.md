@@ -21,7 +21,7 @@ The release zip carries these next to the program. Their notices are in `LICENSE
 
 ## Crates
 
-Every crate compiled into `strobe.exe` (`strobe-app` for `x86_64-pc-windows-msvc`), 261 in all, with the licence its authors published it under. The release zip's `THIRD-PARTY-NOTICES.txt` has each one's version and full licence text.
+Every crate compiled into `strobe.exe` (`strobe-app` for `x86_64-pc-windows-msvc`), 262 in all, with the licence its authors published it under. The release zip's `THIRD-PARTY-NOTICES.txt` has each one's version and full licence text.
 
 | Crate | Licence | Source |
 |---|---|---|
@@ -105,6 +105,7 @@ Every crate compiled into `strobe.exe` (`strobe-app` for `x86_64-pc-windows-msvc
 | glutin_egl_sys | Apache-2.0 | https://github.com/rust-windowing/glutin |
 | glutin_wgl_sys | Apache-2.0 | https://github.com/rust-windowing/glutin |
 | goblin | MIT | https://github.com/m4b/goblin |
+| grafton-ndi | Apache-2.0 AND MIT | https://github.com/GrantSparks/grafton-ndi |
 | guillotiere | MIT OR Apache-2.0 | https://github.com/nical/guillotiere |
 | half | MIT OR Apache-2.0 | https://github.com/VoidStarKat/half-rs |
 | harfrust | MIT | https://github.com/harfbuzz/harfrust |

@@ -16,6 +16,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [strobe-forge](#strobe-forge)
 - [strobe-gfx](#strobe-gfx)
 - [strobe-io](#strobe-io)
+- [strobe-output](#strobe-output)
 - [strobe-playlist](#strobe-playlist)
 - [strobe-projector](#strobe-projector)
 - [strobe-remote](#strobe-remote)
@@ -30,7 +31,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-app
 
-49 decision(s).
+50 decision(s).
 
 - [D42](decisions/D42.md): release builds keep line tables and are not stripped
 - [D55](decisions/D55.md): macOS CI is two-tier until strobe-gfx has a CGL context
@@ -81,6 +82,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D553](decisions/D553.md): Shadertoy cube-map inputs become scene cube maps, the keyboard is 256x3 with every key up, and the Needs-work bin is closed
 - [D567](decisions/D567.md): a desktop controller can watch the host's frame timing live, one sample a second, without the picture stream
 - [D568](decisions/D568.md): cargo-deny ignores RUSTSEC-2026-0543, `chrono` unmaintained, until its two calls move
+- [D575](decisions/D575.md): Spout and NDI input are live media sources, `spout:<name>` and `ndi:<name>`, on the webcam's capture path
 
 ## strobe-audio
 
@@ -146,13 +148,15 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-capture
 
-1 decision(s).
+3 decision(s).
 
 - [D528](decisions/D528.md): a webcam is a media choice, `camera:<name>`, captured by `strobe-capture`
+- [D570](decisions/D570.md): NDI and Spout output leave through one seam, NDI over a readback and Spout over the texture
+- [D575](decisions/D575.md): Spout and NDI input are live media sources, `spout:<name>` and `ndi:<name>`, on the webcam's capture path
 
 ## strobe-conventions
 
-10 decision(s).
+11 decision(s).
 
 - [D41](decisions/D41.md): unsafe is allowed in exactly one `strobe-diag` file
 - [D54](decisions/D54.md): actions pinned by SHA, permissions declared, both enforced by a test
@@ -164,6 +168,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D541](decisions/D541.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
 - [D552](decisions/D552.md): the website and its wasm engine are built and played in CI, as a lane of their own
 - [D555](decisions/D555.md): a hand-loaded scene compiles in the background where the driver can, and the output plays on meanwhile
+- [D571](decisions/D571.md): The Spout sender calls the installed library's C++ ABI
 
 ## strobe-diag
 
@@ -197,7 +202,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-gfx
 
-45 decision(s).
+47 decision(s).
 
 - [D40](decisions/D40.md): our own `log` backend in `strobe-diag`, not tracing or env_logger
 - [D41](decisions/D41.md): unsafe is allowed in exactly one `strobe-diag` file
@@ -244,6 +249,8 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D553](decisions/D553.md): Shadertoy cube-map inputs become scene cube maps, the keyboard is 256x3 with every key up, and the Needs-work bin is closed
 - [D558](decisions/D558.md): the sandbox generates controls a step per animation frame, on the app's own engine and settings
 - [D559](decisions/D559.md): /play rebuilds its engine when the WebGL context comes back
+- [D573](decisions/D573.md): Sharing works the way VJ tools do: saved, sized, blacked out, UYVY on the GPU, idle with no receivers
+- [D575](decisions/D575.md): Spout and NDI input are live media sources, `spout:<name>` and `ndi:<name>`, on the webcam's capture path
 
 ## strobe-io
 
@@ -255,6 +262,14 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D539](decisions/D539.md): property tests over untrusted input, weekly machete and coverage, and the decisions indexed by crate
 - [D541](decisions/D541.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
 - [D544](decisions/D544.md): what the audit work had skipped: a static C runtime, the imports and the loaded ANGLE checked, the browser engine built, generators that reach the code, and a changelog that can be corrected
+
+## strobe-output
+
+3 decision(s).
+
+- [D570](decisions/D570.md): NDI and Spout output leave through one seam, NDI over a readback and Spout over the texture
+- [D573](decisions/D573.md): Sharing works the way VJ tools do: saved, sized, blacked out, UYVY on the GPU, idle with no receivers
+- [D575](decisions/D575.md): Spout and NDI input are live media sources, `spout:<name>` and `ndi:<name>`, on the webcam's capture path
 
 ## strobe-playlist
 
@@ -307,7 +322,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-scene
 
-30 decision(s).
+31 decision(s).
 
 - [D61](decisions/D61.md): audio is the app's, started on a thread, falls back to synthetic by capture state
 - [D73](decisions/D73.md): the playlist model is authored data, resolved once into a flat view
@@ -339,6 +354,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D553](decisions/D553.md): Shadertoy cube-map inputs become scene cube maps, the keyboard is 256x3 with every key up, and the Needs-work bin is closed
 - [D554](decisions/D554.md): the sandbox's scene is its files: pictures added, includes resolved, the picture read back, presets as files
 - [D558](decisions/D558.md): the sandbox generates controls a step per animation frame, on the app's own engine and settings
+- [D575](decisions/D575.md): Spout and NDI input are live media sources, `spout:<name>` and `ndi:<name>`, on the webcam's capture path
 
 ## strobe-script
 
@@ -470,7 +486,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## Not tied to one crate
 
-231 decision(s).
+233 decision(s).
 
 - [D1](decisions/D1.md): native OpenGL (glow + glutin), not wgpu
 - [D2](decisions/D2.md): ANGLE as the fallback context, not native-only
@@ -703,3 +719,5 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D563](decisions/D563.md): a short dropdown shows its options side by side, and a mapped control says so on its row
 - [D565](decisions/D565.md): a shared scene's link shows a frame of the scene, sent by the browser that shares it
 - [D566](decisions/D566.md): local time comes from jiff, not chrono
+- [D572](decisions/D572.md): The Spout sender calls the 2.007 library's vtable, not mangled exports
+- [D574](decisions/D574.md): A second Spout sender carries a clean feed, before the post stage and never blacked out

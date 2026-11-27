@@ -342,7 +342,7 @@
 ## Epic M — Media and transitions
 
 ### M-01 SSF media/cubemap specification audit
-- **Status:** Audited against SSF's documentation (TORNADO T21, Q22; D238). Matches: `IMAGES {NAME, PATH}`, `CUBEMAPS {NAME, PATHS}` in GL face order, `syn_MediaType` 0 none / 1 image, `MEDIA` as a slot with `WRAP`/`FILTER`. Fixed: media the operator chooses is now sampled with the slot's `WRAP`/`FILTER`, defaulting to repeat/linear as SSF documents (it was always clamp). Divergences kept: Strobe's own `MEDIA` path form (a scene's own picture or sequence); video (2), NDI and Spout are not inputs (M-04); a webcam (3) is, on Windows, chosen by the operator, a cue or a preset (D528). Left: cube-face orientation against a real Synesthesia render (undocumented); the undocumented user-media helpers (`_loadUserImage` and family) that eight real scenes use.
+- **Status:** Audited against SSF's documentation (TORNADO T21, Q22; D238). Matches: `IMAGES {NAME, PATH}`, `CUBEMAPS {NAME, PATHS}` in GL face order, `syn_MediaType` 0 none / 1 image, `MEDIA` as a slot with `WRAP`/`FILTER`. Fixed: media the operator chooses is now sampled with the slot's `WRAP`/`FILTER`, defaulting to repeat/linear as SSF documents (it was always clamp). Divergences kept: Strobe's own `MEDIA` path form (a scene's own picture or sequence); video (2) is not an input (M-04); a Spout sender or NDI source reads 3, as SSF gives a shared texture no value of its own (M-07, D575); a webcam (3) is, on Windows, chosen by the operator, a cue or a preset (D528). Left: cube-face orientation against a real Synesthesia render (undocumented); the undocumented user-media helpers (`_loadUserImage` and family) that eight real scenes use.
 - **Work:** compare MEDIA, CUBEMAPS and syn_MediaType handling against authoritative SSF docs and representative scenes; verify cubemap orientation and image slot semantics.
 - **Acceptance:** fixtures cover each documented shape; supported, degraded and unsupported forms are written down; malformed assets fail visibly without crashing the show.
 
@@ -357,7 +357,7 @@
 - **Acceptance:** long sequence memory is bounded/documented; decoding stays off the frame thread; missed frames degrade gracefully.
 
 ### M-04 Video and webcam input
-- **Status:** **Webcam built on Windows (D528, D529, D530), 2026-11-03; waiting on a camera.** The proposal ([research/m04-webcam.md](research/m04-webcam.md)) was approved on 2026-11-03 and its steps 1-5 and 7 are built: `strobe-capture` (listing, a capture thread per camera with a 5 s watchdog and reconnect by name, YUY2/NV12/MJPEG to RGBA, nokhwa on Media Foundation with default features off; no backend on Linux and macOS yet); a camera is the media choice `camera:<name>` in the Inspector's Media row (Camera), `--media`, a cue or a preset, with D217's precedence; one upload a frame into one reused texture with the slot's `WRAP`/`FILTER` and `syn_MediaType` 3; a failure reads black, is said once with an action naming the likely cause, and the camera comes back by itself; `strobe --list-cameras`. nokhwa's per-frame `IMFSample` leak (upstream #251) is patched in `vendor/` (D529) and cargo-deny's `paste` advisory is ignored with its reason (D530). Tested against a fake camera on every OS and on headless GL in both dialects; the AMD desktop it was built on has no camera. **Left:** the proposal's camera checklist (real latency, the formats real cameras offer, unplug and replug, in use and blocked error texts, sleep and resume, a 4-hour soak for the leak, OBS's virtual camera, the T480's cost); step 6, the Media Overlay, which makes a camera show in scenes that don't read `syn_Media` and waits on C-01's media group; Linux (V4L2) and macOS (AVFoundation) capture; video files (a decoder decision of their own); Spout and NDI input.
+- **Status:** **Webcam built on Windows (D528, D529, D530), 2026-11-03; waiting on a camera.** The proposal ([research/m04-webcam.md](research/m04-webcam.md)) was approved on 2026-11-03 and its steps 1-5 and 7 are built: `strobe-capture` (listing, a capture thread per camera with a 5 s watchdog and reconnect by name, YUY2/NV12/MJPEG to RGBA, nokhwa on Media Foundation with default features off; no backend on Linux and macOS yet); a camera is the media choice `camera:<name>` in the Inspector's Media row (Camera), `--media`, a cue or a preset, with D217's precedence; one upload a frame into one reused texture with the slot's `WRAP`/`FILTER` and `syn_MediaType` 3; a failure reads black, is said once with an action naming the likely cause, and the camera comes back by itself; `strobe --list-cameras`. nokhwa's per-frame `IMFSample` leak (upstream #251) is patched in `vendor/` (D529) and cargo-deny's `paste` advisory is ignored with its reason (D530). Tested against a fake camera on every OS and on headless GL in both dialects; the AMD desktop it was built on has no camera. **Left:** the proposal's camera checklist (real latency, the formats real cameras offer, unplug and replug, in use and blocked error texts, sleep and resume, a 4-hour soak for the leak, OBS's virtual camera, the T480's cost); step 6, the Media Overlay, which makes a camera show in scenes that don't read `syn_Media` and waits on C-01's media group; Linux (V4L2) and macOS (AVFoundation) capture; video files (a decoder decision of their own). Spout and NDI input are their own item, M-07 (D575).
 - **Work:** run the checklist on a machine with a camera (the T480's built-in one, and a USB camera on the AMD desktop for unplugging) and tick what it shows; then the overlay with C-01.
 - **Acceptance:** each checklist item recorded with its machine and result; the 4-hour soak flat in private memory; unplug, replug, in use and blocked each said once with the right advice and recovered without a restart.
 ### M-05 Song-change transitions
@@ -365,10 +365,66 @@
 - **Work:** define song-change detection source and confidence, transition interaction with playlist anchors and audio-event advance, and manual override behaviour.
 - **Acceptance:** deterministic tests for no audio, low confidence, track boundary and manual override; no double transition with a cue transition already in progress.
 
-### M-06 NDI output
-- **Status:** Deferred research; not a v1 blocker.
-- **Work:** evaluate SDK/runtime licensing, Windows packaging, pixel format, frame pacing, GPU readback versus shared textures, latency and failure handling.
-- **Acceptance:** measured prototype with frame-time impact and a clear optional-dependency story before committing to a full implementation.
+### M-06 NDI and Spout output
+- **Status:** **Built to the surveyed tools' feature set, with a clean Spout feed, and verified publishing through Spout (D570 to D574), 2026-11-26. NDI and Spout verified end to end on LIGHTNING, in OBS Studio as well as by independent receivers.**
+  - [research/m06-ndi-spout.md](research/m06-ndi-spout.md) covers the SDK and runtime story, licensing, pixel formats and costs. It also holds a survey of how Synesthesia, Resolume, TouchDesigner, MadMapper, OBS, vMix and Millumin expose sharing.
+  - **Built:**
+    - Settings > Output > Sharing, saved: Spout and NDI on or off, editable names, NDI groups and a frame-rate cap, and a shared size (the picture's own, or 720p to 4K). The same options exist as one-run flags: `--spout`, `--ndi`, `--ndi-groups`, `--ndi-fps` and `--share-size`.
+    - The final picture is shared, and blackout blackens it. While no scene plays, black goes out on both senders, so a receiver that connects first shows black.
+    - `strobe_gfx::share::ShareStage` scales the picture or blacks it out. For NDI it packs UYVY on the GPU and reads it back through a fenced ring. NDI sends asynchronously, and does nothing while it has no receiver.
+    - Spout shares the picture's own texture when it can. It creates the sender on the first frame, uses `UpdateSender` on a resize, and calls `Release` on drop.
+    - A status line shows names, size, NDI receivers and rate. Each sender's failure is said once on its own row.
+    - NDI's licence lines and links are beside the choice and in About.
+    - A clean feed: a second Spout sender with the picture before the post stage, never blacked out, under its own name (D574, `--spout-clean`).
+    - `strobe-bench --share` times every path. On the RX 580 at 1080p the NDI path costs the frame 0.54 ms of CPU, against the first cut's 5.8 ms (45 ms worst), and is paced without a drop.
+  - **Verified:**
+    - The GPU packing matches the BT.709 reference byte for byte in both dialects on Mesa (`render.rs`).
+    - `--spout StrobeCheck --share-size 1280x720` is listed at 1280x720 by an independent receiver-side probe on LIGHTNING, and is gone from the list after a clean exit. So are the main sender and the clean feed side by side.
+    - `--ndi` without a runtime gives one line with the NDI Tools link, and the show runs on.
+    - NDI end to end on LIGHTNING with NDI 6 Tools 6.4 installed: an independent receiver (grafton-ndi, `RgbxRgba`) found `LIGHTNING (Strobe NDI Test)`, took its first 1280x720 frame 0.43 s after connecting, and received 448 frames in 8 s (56 fps, the show's own rate). The frame it saved is the playing scene with the right colours, so the UYVY pack, the ring and the asynchronous send hold together on a real driver and runtime.
+    - Spout end to end on LIGHTNING: a receiver built on the Spout 2.007 SDK's own `ReceiveImage` read 1280x720 pixels from `--spout StrobeMain --spout-clean StrobeRaw`, both feeds. `/strobe/cmd/blackout_on` over OSC turned the main feed black (mean RGB 0 0 0) while the clean feed kept the scene, and `blackout_off` brought it back.
+    - Spout and NDI side by side carry the same upright picture (scene 09, floor at the bottom in both).
+    - An NDI stream in the group `stage` is hidden from a receiver in the default group.
+    - With no scene playing (an empty library), an NDI receiver gets black frames; before this it got none.
+    - After a clean exit, neither the Spout senders nor the NDI source is listed.
+    - OBS Studio 33.0.1 with the Spout plugin (win-spout 1.15.0) and DistroAV 6.2.2 shows all three feeds at once: Spout main, Spout clean and NDI, upright. On a still test card (75% colour bars over an eight-step grey ramp), OBS's NDI picture matches its Spout picture within one level on every patch, with exact values (191, 0 and 255), so the UYVY pack's BT.709 limited range decodes correctly in a third-party receiver. Blackout over OSC turns the main Spout and NDI feeds black in OBS and leaves the clean feed; `/strobe/meta/invert` inverts the main and NDI feeds and not the clean one.
+    - The NDI frame-rate cap is tested on a synthetic clock (`output::tests`): 30 fps on 60 Hz takes 30, on 75 Hz 38, on 144 Hz 36.
+  - **Still not verified:**
+    - Resolume, TouchDesigner or MadMapper as receivers (OBS is checked).
+    - NDI to a second machine over the network, and for 30 minutes.
+    - The NDI frame-rate cap's delivered rate on a quiet machine. LIGHTNING was compiling other projects at 100% CPU during the checks, so the rates measured then (5 to 17 fps) say nothing about the cap.
+    - The frame cost on the T480 (`strobe-bench --share` there).
+  - **Left, in demand order:**
+    - More than two senders, or a clean NDI stream: a list of senders, each with a source, a protocol and a name (D574).
+    - Spout and NDI input as a media source: its own item, M-07 (D575).
+    - NDI audio.
+    - Alpha (D248).
+    - 16-bit output.
+    - NDI delay, failover and tally.
+    - OSC control of sharing.
+- **Work:** measure, then attach receivers. NDI Tools is now installed on LIGHTNING (2026-11-26), so NDI is checked there, and a Spout SDK receiver checks Spout; OBS (with win-spout and DistroAV) shows both on screen.
+- **Acceptance:**
+  - `strobe-bench` with the output off and on, at 1280x720 and 1920x1080, on the T480.
+  - A 30-minute NDI stream to a second machine, and a Spout receiver on the same machine.
+  - Each outage said once.
+  - A flat-memory soak.
+
+### M-07 Spout and NDI input
+- **Status:** **Built (D575), 2026-11-26; Spout and NDI verified on LIGHTNING, Strobe to Strobe, and NDI from OBS.** The input half of [lnorton89/strobe#116](https://github.com/lnorton89/strobe/issues/116), placed in M-04's family by the M-06 research page.
+  - **Built:**
+    - A Spout sender is the media choice `spout:<name>`, an NDI source `ndi:<name>` (`strobe_scene::live`), everywhere a media choice is a path: the Inspector's Media row (Spout, NDI, beside Camera, each listing on its own thread), `--media`, a cue, a preset. `--list-spout` and `--list-ndi` print the names.
+    - Both run on `strobe-capture`'s supervisor as two more backends (`strobe_app::share_input`, over `strobe-output`'s `SpoutReceiver` and `NdiReceiver`): watchdog, reconnect by name, a failure said once and black with type 0, retirement when unshown, one capture shared by every player.
+    - One upload a frame into one reused texture, `syn_MediaType` 3 (Q22), no allocation or driver query unless the size changes.
+    - Spout reads on the capture thread with Spout's own hidden GL context; NDI asks for RGBX/RGBA. An idle sender keeps its last picture; no first picture in 3 s, a closed sender or a disconnected source fails at once. Failure actions are worded for each kind.
+  - **Verified (LIGHTNING, Windows 10, RX 580):** Strobe sending a known gradient through `--spout`, a second instance receiving it: listed; upright and exact with type 3; killing the sender said once and black; starting the receiver first said once, then the picture by itself when the sender starts. The same over NDI with NDI 6 Tools: `--list-ndi` lists `LIGHTNING (StrobeNdiCheck)`; the received picture is upright and exact within two levels after NDI's 4:2:2 round trip (marker 255,255,191; corners (2,2,191), (254,1,191), (254,252,191)), with no false "not found" while discovery answered; killing the sender says "closed" once and reads black, and the retries that follow, while NDI still lists the stale name, say nothing more.
+  - **Verified, third party:** OBS Studio 33 with DistroAV 6.2.2 as a third-party NDI sender: Strobe sent the gradient as Spout `StrobeMain`, OBS's saved scene showed it in its top-left quarter, and DistroAV's main output re-sent the program as `LIGHTNING (OBS PGM)`; a second Strobe received that through `--media "ndi:LIGHTNING (OBS PGM)"` upright, with the quarter exact within two levels (marker 255,255,191; quarter corners (2,2,191), (254,2,191), (254,251,191)) and the rest of OBS's canvas black.
+  - **Not verified:** a third-party Spout sender (Resolume, TouchDesigner, OBS) as the source; the Media row's buttons clicked on screen; the capture-thread copy's cost on the T480.
+  - **Left:** zero-copy Spout input (`ReceiveTexture` into the player's texture on the render thread) if the T480 finds the copy costly; the Media Overlay, so a feed shows in scenes that do not read `syn_Media` (C-01); NDI audio.
+- **Work:** receive a third-party Spout sender (OBS's Spout output filter, or Resolume); time the copy on the T480 (the supervisor logs the conversion cost every minute).
+- **Acceptance:**
+  - An NDI source and a third-party Spout sender each shown upright with type 3.
+  - Each outage (the sender closed, the network pulled) said once, black, and back without a restart.
+  - The T480's frame time with a 720p feed showing, against none.
 
 ## Epic L — LAN remote and PWA
 

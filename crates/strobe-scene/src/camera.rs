@@ -4,7 +4,7 @@
 //               `camera:<name>`, shared by the operator's choice, cues and
 //               presets.
 //
-// Dependencies: std only
+// Dependencies: std; crate::live (the prefixes of every live kind)
 // ============================================================================
 
 //! A camera as a media choice (backlog M-04, D528).
@@ -19,6 +19,9 @@
 //!
 //! A scene's own `MEDIA` key cannot name a camera; it names a file in the
 //! scene's folder, as in Synesthesia.
+//!
+//! Spout senders and NDI sources are media choices the same way, with their
+//! own prefixes; [`crate::live`] names all three kinds (D575).
 
 use std::path::{Path, PathBuf};
 
@@ -36,13 +39,11 @@ pub fn path_for(name: &str) -> PathBuf {
     PathBuf::from(format!("{PREFIX}{}", name.trim()))
 }
 
-/// `relative` resolved against `dir`, unless it names a camera, which is
+/// `relative` resolved against `dir`, unless it names a live source (a
+/// camera, a Spout sender or an NDI source; [`crate::live`]), which is
 /// returned as it is.
 pub fn resolve(dir: &Path, relative: &Path) -> PathBuf {
-    match name_of(relative) {
-        Some(_) => relative.to_path_buf(),
-        None => dir.join(relative),
-    }
+    crate::live::resolve(dir, relative)
 }
 
 #[cfg(test)]
