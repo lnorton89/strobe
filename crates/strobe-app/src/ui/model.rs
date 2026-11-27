@@ -208,7 +208,7 @@ pub enum Action {
     SetAdaptive(bool),
     /// Share the output as this says, through Spout and NDI, and save it
     /// (D573).
-    SetSharing(crate::prefs::SharingPref),
+    SetSharing(super::state::SharingEdit),
     /// Prerender the library's scenes, or stop and let them go (D542).
     /// Applied at once and saved.
     SetPrerender(bool),

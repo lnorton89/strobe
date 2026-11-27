@@ -313,6 +313,10 @@ mod imp {
         size: Option<(u32, u32)>,
         /// Whether a read has ever found the sender, for the failure's words.
         found: bool,
+        /// The buffer was made for a new size and no picture has been handed
+        /// over at it yet: the next whole read is, new frame or not, so a
+        /// paused sender still shows rather than reading as stalled.
+        unshown: bool,
     }
 
     impl std::fmt::Debug for Receiver {
@@ -345,6 +349,7 @@ mod imp {
                 object,
                 size: None,
                 found: false,
+                unshown: true,
             })
         }
 
@@ -380,9 +385,10 @@ mod imp {
                 self.fit(pixels)?;
                 return Ok(None);
             }
-            if !flag(self.frame_new, object) {
+            if !flag(self.frame_new, object) && !self.unshown {
                 return Ok(None);
             }
+            self.unshown = false;
             Ok(Some(Received {
                 width,
                 height,
@@ -405,6 +411,9 @@ mod imp {
                 )));
             }
             pixels.resize(size.0 as usize * size.1 as usize * 4, 0);
+            if self.size != Some(size) {
+                self.unshown = true;
+            }
             self.size = Some(size);
             Ok(())
         }

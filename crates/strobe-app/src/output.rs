@@ -124,6 +124,11 @@ pub(crate) struct Sharing {
     clean_note: String,
     ndi_note: String,
     stage_note: String,
+    /// The shared size the stage last failed to make, so it is not tried
+    /// again every frame; cleared when the size changes.
+    failed_size: Option<Option<[i32; 2]>>,
+    /// The clean feed's stage failed at that size.
+    clean_failed_size: Option<Option<[i32; 2]>>,
     /// When NDI last packed a frame, for the cap.
     last_pack: Option<Instant>,
     receivers: Option<u32>,
@@ -155,6 +160,8 @@ impl Sharing {
             clean_note: String::new(),
             ndi_note: String::new(),
             stage_note: String::new(),
+            failed_size: None,
+            clean_failed_size: None,
             last_pack: None,
             receivers: None,
             polled: None,
@@ -262,6 +269,14 @@ impl Sharing {
         });
         if size != self.size {
             self.size = size;
+            // A new size is a new try: forget the old size's failure and
+            // its note.
+            if self.failed_size.take().is_some() {
+                self.stage_note.clear();
+            }
+            if self.clean_failed_size.take().is_some() {
+                self.clean_note.clear();
+            }
             changed = true;
         }
         let interval =
@@ -304,6 +319,7 @@ impl Sharing {
         if !self.active(gpu) {
             return false;
         }
+        let mut changed_note = false;
         let poll = self.polled.is_none_or(|at| now.duration_since(at) >= POLL);
         if poll {
             self.polled = Some(now);
@@ -343,13 +359,14 @@ impl Sharing {
             }
         }
         let texture = match gpu.stage.as_mut() {
+            Some(_) if self.failed_size == Some(self.size) => None,
             Some(stage) => match stage.prepare(source, want) {
                 Ok(texture) => texture,
                 Err(error) => {
-                    if self.stage_note.is_empty() {
-                        self.stage_note = format!("the shared picture could not be sized: {error}");
-                        log::warn!("{}", self.stage_note);
-                    }
+                    self.failed_size = Some(self.size);
+                    self.stage_note = format!("the shared picture could not be sized: {error}");
+                    self.refresh_note();
+                    changed_note = true;
                     None
                 }
             },
@@ -369,7 +386,18 @@ impl Sharing {
                 pixels: false,
             };
             let texture = match gpu.clean_stage.as_mut() {
-                Some(stage) => stage.prepare(clean_source, want).unwrap_or_default(),
+                Some(_) if self.clean_failed_size == Some(self.size) => None,
+                Some(stage) => match stage.prepare(clean_source, want) {
+                    Ok(texture) => texture,
+                    Err(error) => {
+                        self.clean_failed_size = Some(self.size);
+                        self.clean_note =
+                            format!("the clean feed's picture could not be sized: {error}");
+                        self.refresh_note();
+                        changed_note = true;
+                        None
+                    }
+                },
                 None => Some(clean_source.share()),
             };
             if let Some(texture) = texture {
@@ -392,7 +420,7 @@ impl Sharing {
                 self.counted += 1;
             }
         }
-        let mut changed = self.take_failures(gpu);
+        let mut changed = changed_note | self.take_failures(gpu);
         if poll {
             let from = *self.counted_from.get_or_insert(now);
             let span = now.duration_since(from).as_secs_f32();
@@ -637,6 +665,30 @@ mod tests {
             sharing.interval,
             Some(Duration::from_secs_f64(1.0 / 30.0)),
             "as the least time between frames"
+        );
+    }
+
+    #[test]
+    fn a_new_size_clears_the_last_sizes_failure() {
+        let mut sharing = Sharing::new();
+        let mut gpu = GpuShare::default();
+        let mut live = SharingPref::default();
+        sharing.apply(&live, &mut gpu);
+        sharing.failed_size = Some(None);
+        sharing.stage_note = "the shared picture could not be sized: no memory".to_owned();
+        sharing.clean_failed_size = Some(None);
+        sharing.clean_note = "the clean feed's picture could not be sized: no memory".to_owned();
+        sharing.refresh_note();
+        live.size = Some([1920, 1080]);
+        assert!(sharing.apply(&live, &mut gpu), "a new size applies");
+        assert!(
+            sharing.failed_size.is_none() && sharing.clean_failed_size.is_none(),
+            "the new size is tried"
+        );
+        assert!(
+            sharing.notes().iter().all(|note| note.is_empty()),
+            "and the old failure is no longer shown: {:?}",
+            sharing.notes()
         );
     }
 
